@@ -146,3 +146,5 @@ dmypy.json
 /sde_cache/fsd
 /sde_cache/.converted_*.json
 /output
+/input/events-utf8.txt
+/input/killmails-utf8.txt
