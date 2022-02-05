@@ -1,0 +1,3 @@
+2022-01-02	1	Iskin 005 has come
+2022-01-07	0	Hello, Adolat Kion !
+2022-01-07	1	Adolat Kion has come
