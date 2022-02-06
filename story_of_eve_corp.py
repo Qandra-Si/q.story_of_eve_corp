@@ -14,6 +14,16 @@ $ python eve_sde_tools.py
 $ python story_of_eve_corp.py -i ./input -o ./output -v
 $ ffmpeg -i ./output/%05d.png -vf "scale=3840:2160,fps=24" out.mp4
 
+To add audio track into video stream run following commands:
+
+$ cat audiolist.txt
+# audiolist.txt
+file 'audio1.mp3'
+file 'audio2.mp3'
+file 'audio3.mp3'
+$ ffmpeg -f concat -i audiolist.txt -c copy out-audio.mp3
+$ ffmpeg -i out.mp4 -i out-audio.mp3 -codec:v copy -codec:a copy -shortest output.mp4
+
 """
 import os
 import argparse
