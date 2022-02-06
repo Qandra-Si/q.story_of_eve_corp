@@ -149,3 +149,4 @@ dmypy.json
 /input/*.txt
 /ffmpeg
 /render_settings.py
+/*.mp4

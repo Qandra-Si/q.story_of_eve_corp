@@ -90,10 +90,12 @@ class RenderFadeInEvent:
         self.txt: str = txt
         self.__color: (int, int, int) = render_settings.EVENTS_SETUP[level][0]
         self.opacity: float = 1.0
-        lifetime_frames: int = render_settings.EVENTS_SETUP[level][1] * render_settings.RENDER_FRAME_RATE
-        self.transparency_frame: float = 1.0 / lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
+        self.frame_num: int = 1
+        self.lifetime_frames: int = render_settings.EVENTS_SETUP[level][1] * render_settings.RENDER_FRAME_RATE
+        self.transparency_frame: float = 1.0 / self.lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
 
     def pass_frame(self):
+        self.frame_num += 1
         self.opacity -= self.transparency_frame
         if self.opacity < 0.0:
             self.opacity = 0.0
@@ -104,7 +106,7 @@ class RenderFadeInEvent:
 
     @property
     def disappeared(self) -> bool:
-        return self.opacity < 0.08
+        return self.frame_num > self.lifetime_frames
 
 
 class RenderFadeInKillmail:
@@ -142,33 +144,51 @@ class RenderFadeInKillmail:
         self.mass: float = ship_mass
         self.x: typing.Optional[float] = x
         self.z: typing.Optional[float] = z
-        self.opacity: float = 1.0
         self.frame_num: int = 1
-        self.lifetime_frames: int = render_settings.KILLMAILS_SETUP[self.__level][1] * render_settings.RENDER_FRAME_RATE
-        self.transparency_frame: float = 1.0 / self.lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
+        map_days: int = render_settings.KILLMAILS_SETUP[self.__level][1]
+        self.map_lifetime_frames: int = map_days * render_settings.RENDER_FRAME_RATE
+        self.map_opacity: float = 1.0
+        self.map_transparency_frame: float = 1.0 / self.map_lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
+        if render_settings.KILLMAILS_SETUP[self.__level][2] is None:
+            self.list_lifetime_frames = None
+        else:
+            list_days: float = self.__get_boom_metrix()
+            if list_days < (map_days + 1):
+                list_days = (map_days + 1)
+            else:
+                list_days = min(list_days, render_settings.KILLMAILS_SETUP[self.__level][2])
+            self.list_lifetime_frames = list_days * render_settings.RENDER_FRAME_RATE
+            self.list_opacity: float = 1.0
+            self.list_transparency_frame: float = 1.0 / self.list_lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
 
     def pass_frame(self):
         self.frame_num += 1
-        self.lifetime_frames -= 1
-        self.opacity -= self.transparency_frame
-        if self.opacity < 0.0:
-            self.opacity = 0.0
+        self.map_opacity -= self.map_transparency_frame
+        if self.map_opacity < 0.0:
+            self.map_opacity = 0.0
+        if self.list_lifetime_frames is not None:
+            self.list_opacity -= self.list_transparency_frame
+            if self.list_opacity < 0.0:
+                self.list_opacity = 0.0
 
     @property
     def show_in_list(self) -> bool:
-        return self.__level == 1 or self.__level == 3
+        return self.list_lifetime_frames is not None
 
     @property
     def show_on_map(self) -> bool:
-        return self.x is not None
+        return self.x is not None and self.frame_num <= self.map_lifetime_frames
 
     @property
     def disappeared(self) -> bool:
-        return self.lifetime_frames == 0
+        if self.list_lifetime_frames is not None:
+            return self.frame_num > self.list_lifetime_frames or self.list_opacity < 0.08
+        else:
+            return self.frame_num > self.map_lifetime_frames
 
     @property
     def list_color(self) -> (int, int, int):
-        return int(self.__color[0] * self.opacity), int(self.__color[1] * self.opacity), int(self.__color[2] * self.opacity)
+        return int(self.__color[0] * self.list_opacity), int(self.__color[1] * self.list_opacity), int(self.__color[2] * self.list_opacity)
 
     @property
     def map_color(self) -> (int, int, int):
@@ -176,17 +196,31 @@ class RenderFadeInKillmail:
 
     @property
     def map_alpha(self) -> int:
-        return int(render_settings.KILLMAIL_MAP_MIN_ALPHA + (1.0-self.opacity) * (render_settings.KILLMAIL_MAP_MAX_ALPHA - render_settings.KILLMAIL_MAP_MIN_ALPHA))
+        return int(render_settings.KILLMAIL_MAP_MIN_ALPHA + (1.0-self.map_opacity) * (render_settings.KILLMAIL_MAP_MAX_ALPHA - render_settings.KILLMAIL_MAP_MIN_ALPHA))
+
+    def __get_boom_metrix(self) -> float:
+        # Customs Office  mass = 5'000'000'000  sqrt = 70'710
+        # Astrahus        mass = 3'000'000'000  sqrt = 54'772
+        # Rhea            mass =   960'000'000  sqrt = 30'983
+        # Bhaalgorn       mass =    97'100'000  sqrt =  9'853
+        # Venture         mass =     1'200'000  sqrt =  1'095
+        # Capsule         mass =        32'000  sqrt =    178
+        boom_metrix: float = sqrt(self.mass) / 1000.0  # раньше было mass / 50000000
+        return boom_metrix
 
     @property
     def map_radius(self) -> float:
-        # в первые треть секунды радиус взрыва растёт, пока на достигнет эквивалента массы
-        boom_radius: float = self.mass / 50000000  # Rhea 960'000'000, Capsule 32'000, Venture 1'200'000
+        # в первые треть игровых суток радиус взрыва растёт, пока на достигнет эквивалента массы
+        # Astrahus 3'000'000'000, Rhea 960'000'000, Capsule 32'000, Venture 1'200'000
+        boom_radius: float = self.__get_boom_metrix()
         if boom_radius < render_settings.KILLMAIL_MIN_FATNESS:
             boom_radius = render_settings.KILLMAIL_MIN_FATNESS
-        half_sec_frames: int = int((render_settings.RENDER_FRAME_RATE + 1) / 3)
-        if self.frame_num < half_sec_frames:
-            boom_radius *= self.frame_num / half_sec_frames
+        growing_frames: int = int((render_settings.DURATION_DATE + 1) / 3)
+        if self.frame_num < growing_frames:
+            boom_radius *= self.frame_num / growing_frames
+        # радиус взрыва делаем не меньше чем радиус солнечной системы
+        if boom_radius < render_settings.SOLAR_SYSTEM_FATNESS:
+            boom_radius = render_settings.SOLAR_SYSTEM_FATNESS
         return boom_radius
 
 
@@ -200,12 +234,12 @@ class RenderFadeInIndustry:
         self.x: typing.Optional[float] = x
         self.z: typing.Optional[float] = z
         self.frame_num: int = 1
-        self.transparency_frame: float = 2.0 / (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)  # мера прозрачности, добавляемая каждый фрейм
+        self.transparency_frame: float = 2.0 / render_settings.DURATION_DATE  # мера прозрачности, добавляемая каждый фрейм
         self.opacity: float = 0.0
 
     def pass_frame(self):
         self.frame_num += 1
-        if self.frame_num < (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2:
+        if self.frame_num < (render_settings.DURATION_DATE + 1) / 2:
             self.opacity += self.transparency_frame
             if self.opacity > 1.0:
                 self.opacity = 1.0
@@ -216,7 +250,7 @@ class RenderFadeInIndustry:
 
     @property
     def disappeared(self) -> bool:
-        return self.frame_num > (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)
+        return self.frame_num > render_settings.DURATION_DATE
 
     @property
     def map_color(self) -> (int, int, int):
@@ -229,11 +263,11 @@ class RenderFadeInIndustry:
     @property
     def map_radius(self) -> float:
         industry_radius: float = 13 * self.runs / 1000  # 2022-02-02 : 2581 работ
-        half_date_frames: int = int((render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2)
+        half_date_frames: int = int((render_settings.DURATION_DATE + 1) / 2)
         if self.frame_num < half_date_frames:
             industry_radius *= self.frame_num / half_date_frames
         else:
-            industry_radius *= (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC - self.frame_num) / half_date_frames
+            industry_radius *= (render_settings.DURATION_DATE - self.frame_num) / half_date_frames
         return render_settings.INDUSTRY_MIN_FATNESS + industry_radius
 
 
@@ -247,12 +281,12 @@ class RenderFadeInMarket:
         self.x: typing.Optional[float] = x
         self.z: typing.Optional[float] = z
         self.frame_num: int = 1
-        self.transparency_frame: float = 2.0 / (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)  # мера прозрачности, добавляемая каждый фрейм
+        self.transparency_frame: float = 2.0 / render_settings.DURATION_DATE  # удвоенная мера прозрачности, добавляемая каждый фрейм
         self.opacity: float = 0.0
 
     def pass_frame(self):
         self.frame_num += 1
-        if self.frame_num < (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2:
+        if self.frame_num < (render_settings.DURATION_DATE + 1) / 2:
             self.opacity += self.transparency_frame
             if self.opacity > 1.0:
                 self.opacity = 1.0
@@ -263,7 +297,7 @@ class RenderFadeInMarket:
 
     @property
     def disappeared(self) -> bool:
-        return self.frame_num > (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)
+        return self.frame_num > render_settings.DURATION_DATE
 
     @property
     def map_color(self) -> (int, int, int):
@@ -276,11 +310,11 @@ class RenderFadeInMarket:
     @property
     def map_radius(self) -> float:
         market_radius: float = 13 * self.isk / 20000000000  # 2021-12-09 : 74'161'872'333 isk
-        half_date_frames: int = int((render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2)
+        half_date_frames: int = int((render_settings.DURATION_DATE + 1) / 2)
         if self.frame_num < half_date_frames:
             market_radius *= self.frame_num / half_date_frames
         else:
-            market_radius *= (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC - self.frame_num) / half_date_frames
+            market_radius *= (render_settings.DURATION_DATE - self.frame_num) / half_date_frames
         return render_settings.MARKET_MIN_FATNESS + market_radius
 
 
@@ -664,10 +698,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # canvas.save('{}/{}_{:0>3}.png'.format(out_dir, render_date_str, frame_idx))
             canvas.save('{}/{:0>5}.png'.format(out_dir, image_index))
             image_index += 1
-            # DEBUG:
-            canvas.show()
-            # DEBUG:
-            return
+            # DEBUG: canvas.show()
+            # DEBUG: return
 
         del img_draw
         del canvas
