@@ -373,12 +373,15 @@ class RenderUniverse:
         mask = Image.new("L", img_size, 0)
         ImageDraw.Draw(mask).ellipse(
             (border_width, border_width, border_width + int(2 * radius), border_width + int(2 * radius)), fill=alpha)
-        img_mask_blur = mask.filter(ImageFilter.GaussianBlur(blur_size))
-        del mask
         # создаём изображение - красное полотно, на которое накладываем маску с кругом => прозрачный красный круг
         transp_img = Image.new('RGB', img_size, color)
-        transp_img.putalpha(img_mask_blur)
-        del img_mask_blur
+        if blur_size:
+            img_mask_blur = mask.filter(ImageFilter.GaussianBlur(blur_size))
+            transp_img.putalpha(img_mask_blur)
+            del img_mask_blur
+        else:
+            transp_img.putalpha(mask)
+        del mask
         return transp_img
 
     def draw_solar_system(self, x: float, z: float, luminosity: float):
@@ -386,8 +389,10 @@ class RenderUniverse:
         __z: float = self.scale.render_half_height - (z - self.scale.universe_center_z) * self.scale.scale_z
         __fatness: float = render_settings.SOLAR_SYSTEM_FATNESS
         __luminosity: int = int(render_settings.LUMINOSITY_MIN_BOUND + (sqrt(luminosity) - self.scale.min_luminosity) * self.scale.scale_luminosity)
-        __shape = [(__x - __fatness, __z - __fatness), (__x + __fatness, __z + __fatness)]
-        self.img_draw.ellipse(__shape, fill=(__luminosity, __luminosity, __luminosity))
+        transp_img: Image = self.create_transparent_ellipse(__fatness, render_settings.SOLAR_SYSTEM_BLUR, 'white', __luminosity)
+        shift: (int, int) = transp_img.size
+        shift = (int(__x - shift[0] / 2), int(__z - shift[1] / 2))
+        self.canvas.paste(transp_img, shift, transp_img)
 
     def highlight_solar_system(self, x: float, z: float, color: (int, int, int), fatness: float, alpha: int):
         __x: float = self.scale.render_center_width + (x - self.scale.universe_center_x) * self.scale.scale_x
@@ -546,6 +551,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     render_fade_in: RenderFadeInRepository = RenderFadeInRepository()
     maximum_num_of_industry_jobs = 0
     maximum_isk_per_day = 0
+    # сортируем список звёздных систем в порядке возрастания составляющей y, так чтобы при рисовании их на плоскости
+    # верхние были над нижними
+    sorted_solar_systems: typing.List[typing.Any] = list(sde_positions.values())
+    sorted_solar_systems.sort(key=lambda ss: ss[1], reverse=False)
 
     # номер фрейма, который задаёт имя файла и последовательно используется ffmpeg-программой
     image_index: int = 0
@@ -636,7 +645,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # генерируем рисовалку вселенной и корпоративных событий
             renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
-            for p in sde_positions.values():
+            for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
             # наносим дату на изображение
             renderer.draw_date_caption(render_date_str)
@@ -655,7 +664,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # canvas.save('{}/{}_{:0>3}.png'.format(out_dir, render_date_str, frame_idx))
             canvas.save('{}/{:0>5}.png'.format(out_dir, image_index))
             image_index += 1
-            # canvas.show()
+            # DEBUG:
+            canvas.show()
+            # DEBUG:
+            return
 
         del img_draw
         del canvas
