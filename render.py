@@ -30,6 +30,8 @@ class RenderScale:
         # размер шрифтов для рисования ндписей на картинке
         self.fontsize = 1
         self.left_bound_of_events: int = 0
+        self.top_bound_of_events: int = 0
+        self.bottom_bound_of_events: int = 8
 
     def calc(self, sde_positions):
         self.min_x = None
@@ -63,7 +65,7 @@ class RenderScale:
         self.scale_z = render_settings.RENDER_HEIGHT / self.universe_height
         self.scale_x = render_settings.RENDER_HEIGHT / self.universe_width
         # рассчитываем позицию региона, где будут появляться события
-        self.left_bound_of_events: int = int(self.render_center_width + (self.max_x-self.universe_center_x)*self.scale_x) + 20
+        self.left_bound_of_events = int(self.render_center_width + (self.max_x-self.universe_center_x)*self.scale_x) + 20
         # расчёт светимости, берём мощность от яркости, как корень квадратный
         self.min_luminosity = sqrt(self.min_luminosity)
         self.max_luminosity = sqrt(self.max_luminosity)
@@ -73,12 +75,14 @@ class RenderScale:
         self.fontsize: int = 10  # начальный размер шрифта
         font = ImageFont.truetype("arial.ttf", self.fontsize)
         # итерируемся по размерам шрифтов так, чтобы в высоту изображения влезло N строк
-        while font.getsize("Qandra Si")[1] < (render_settings.RENDER_HEIGHT / render_settings.NUMBER_OF_EVENTS):
+        height: int = render_settings.RENDER_HEIGHT - self.bottom_bound_of_events + self.top_bound_of_events
+        while font.getsize("Qandra Si")[1] < (height / render_settings.NUMBER_OF_EVENTS):
             self.fontsize += 1
             font = ImageFont.truetype("arial.ttf", self.fontsize)
-        # опционально уменьшаем размер шрифта, чтобы была уверенность, что символы не будут наползать друг на друга
-        self.fontsize -= 1
         del font
+        # опционально уменьшаем размер шрифта, чтобы была верхние надписи не уходили за экран (впрочем они там и так
+        # затухают, т.ч. это действительно необязательно)
+        # self.fontsize -= 1
 
 
 class RenderFadeInEvent:
@@ -397,16 +401,18 @@ class RenderUniverse:
 
     def draw_events_list(self, events: typing.List[RenderFadeInEvent]):
         __x: int = self.scale.left_bound_of_events
+        __height: float = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_events
         for (idx, e) in enumerate(events):
-            __y: float = render_settings.RENDER_HEIGHT - idx*render_settings.RENDER_HEIGHT/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
+            __y: float = __height - idx*__height/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
             self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
 
     def draw_killmails_list(self, killmails: typing.List[RenderFadeInKillmail]):
         __x: int = 0  # self.scale.left_bound_of_events
+        __height: float = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_events
         for (idx, k) in enumerate(killmails):
             if idx == render_settings.NUMBER_OF_KILLMAILS_IN_LIST:
                 break
-            __y: float = render_settings.RENDER_HEIGHT - idx*render_settings.RENDER_HEIGHT/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
+            __y: float = __height - idx*__height/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
             self.img_draw.text((__x, __y), k.txt, fill=k.list_color, font=self.events_font)
 
     def draw_killmails_map(self, killmails: typing.List[RenderFadeInKillmail]):
