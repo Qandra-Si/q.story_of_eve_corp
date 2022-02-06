@@ -1,0 +1,72 @@
+﻿# Смотрим рекомендуемые настройки кодирования здесь https://support.google.com/youtube/answer/1722171?hl=ru
+# выбираем частоту кадров, разрешение и соотношение сторон, останавливаемся на Ultra HD 4K.
+# Внимание! крайне не рекомендуется менять следующие параметры, задавая их отличными от одного из перечисленных
+# по ссылке вариантов, во избежание перекодирования изображений сгенерированных этой программой. Изображения содержат
+# текст, которые после переконвертации может стать плохочитаемым.
+RENDER_WIDTH: int = 3840
+RENDER_HEIGHT: int = 2160
+RENDER_FRAME_RATE: int = 24  # 24
+SOLAR_SYSTEM_FATNESS: float = 2.0
+LUMINOSITY_MIN_BOUND: int = 50  # 50 хорошо в тёмное время суток на тёмном экране, 100 днём очень ярко для killmails
+LUMINOSITY_MAX_BOUND: int = 255
+NUMBER_OF_EVENTS: int = 50
+NUMBER_OF_KILLMAILS_IN_LIST: int = 40  # шрифт используется такой же, регион для killmails занимает меньше места
+KILLMAIL_MAP_MIN_ALPHA: float = 220  # 255 максимальный уровень непрозрачности
+KILLMAIL_MAP_MAX_ALPHA: float = 50   # 0 максимальный уровень прозрачности
+KILLMAIL_MIN_FATNESS: float = SOLAR_SYSTEM_FATNESS * 4  # маркер гибели корабля больше солнечной системы, далее по массе
+INDUSTRY_MAP_MIN_ALPHA: float = 220  # 255 максимальный уровень непрозрачности
+INDUSTRY_MAP_MAX_ALPHA: float = 128  # 0 максимальный уровень прозрачности
+INDUSTRY_MIN_FATNESS: float = SOLAR_SYSTEM_FATNESS * 5  # маркер производства больше солнечной системы, далее по ранам
+MARKET_MAP_MIN_ALPHA: float = 220    # 255 максимальный уровень непрозрачности
+MARKET_MAP_MAX_ALPHA: float = 128    # 0 максимальный уровень прозрачности
+MARKET_MIN_FATNESS: float = SOLAR_SYSTEM_FATNESS * 4  # маркер торговли больше солнечной системы, далее по искам
+# интервалы времени (д.б. согласованы с RENDER_FRAME_RATE)
+DURATION_DATE_SEC: int = 1  # одна дата рисуется 2 секунды
+DURATION_DATE: int = RENDER_FRAME_RATE * DURATION_DATE_SEC  # одна дата рисуется 2*24 фрейма, т.е. 2 секунды
+# цвета, выбираем тут https://www.computerhope.com/htmcolor.htm
+EVENTS_SETUP: ((int, int, int), int) = [
+    # color              duration sec
+    ((0xff, 0xe5, 0xb4), 8),  # peach (персиковый) warning "Hello, Qandra Si", живёт на экране 8 секунд
+    ((0xb6, 0xb6, 0xb4), 4),  # gray cloud (светло серый) notice "Qandra Si has come", живёт на экране 4 секунды
+    ((0x79, 0x79, 0x79), 3),  # platinum gray (сероватый) notice "Qandra Si gone", живёт на экране 3 секунды
+    ((0xc9, 0xc0, 0xbb), 5),  # pale silver (сёро жёлтая) надпись рекорд производственных работ, живёт 5 секунд
+    ((0x73, 0x7c, 0xa1), 5),  # slate blue grey (сёро голубая) надпись рекорд рыночных операций, живёт 5 секунд
+]
+KILLMAILS_SETUP: (int, int, int) = [
+    # color              duration sec
+    ((0xdc, 0x38, 0x1f), DURATION_DATE_SEC),      # (в списке событий killmail не упоминается), живёт на экране одни сутки
+    ((0xdc, 0x38, 0x1f), DURATION_DATE_SEC * 2),  # grapefruit (красный) warning "Zorky Graf Tumidus lost Rhea", живёт на экране 2 суток
+    ((0x12, 0xad, 0x2b), DURATION_DATE_SEC),      # (в списке событий killmail не упоминается), живёт на экране одни сутки
+    ((0x12, 0xad, 0x2b), DURATION_DATE_SEC * 2),  # parrot green (зелёный) warning "Astrahus destroyed by 240 pilots", живёт на экране 2 суток
+]
+INDUSTRY_SETUP: (int, int, int) = (0xff, 0xdf, 0x00)  # golden yellow (жёлтый) производственные работы
+MARKET_SETUP: (int, int, int) = (0x5c, 0xb3, 0xff)    # crystal blue (синий) операции на рынке
+
+"""
+Следующая секция не меняет поведение программы,
+а задаёт расположение данные в считываемых в диска файлах 
+"""
+
+# формат csv файла events-utf8.txt
+FILE_EVENTS_NAME: str = "events-utf8.txt"
+FILE_EVENTS_COL_DATE: int = 0
+FILE_EVENTS_COL_LEVEL: int = 1
+FILE_EVENTS_COL_TXT: int = 2
+# формат csv файла killmails-utf8.txt
+FILE_KILLMAILS_NAME: str = "killmails-utf8.txt"
+FILE_KILLMAILS_COL_DATE: int = 0
+FILE_KILLMAILS_COL_VICTIM: int = 1
+FILE_KILLMAILS_COL_SHIPTYPE: int = 2
+FILE_KILLMAILS_COL_MASS: int = 3
+FILE_KILLMAILS_COL_TXT: int = 4
+FILE_KILLMAILS_COL_SYSTEM: int = 5
+# формат csv файла industry_jobs-utf8.txt
+FILE_INDUSTRY_NAME: str = "industry_jobs-utf8.txt"
+FILE_INDUSTRY_COL_DATE: int = 0
+FILE_INDUSTRY_COL_JOBS: int = 1
+FILE_INDUSTRY_COL_SYSTEM: int = 2
+# формат csv файла market-utf8.txt
+FILE_MARKET_NAME: str = "market-utf8.txt"
+FILE_MARKET_COL_DATE: int = 0
+FILE_MARKET_COL_SYSTEM: int = 1
+FILE_MARKET_COL_ISK: int = 2

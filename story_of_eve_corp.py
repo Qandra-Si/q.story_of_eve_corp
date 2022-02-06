@@ -4,7 +4,8 @@ Prerequisites:
     * Have a Python 3 environment available to you (possibly by using a
       virtual environment: https://virtualenv.pypa.io/en/stable/).
     * Run pip install -r requirements.txt with this directory as your root.
-    * Change render.py settings and mood for your needs.
+    * Copy render_settings.py.template into render_settings.py and
+      mood for your needs.
 
 To run this program, make sure you have completed the prerequisites and then
 run the following command from this directory as the root:
@@ -30,7 +31,7 @@ import argparse
 import render
 
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 __author__ = 'Qandra Si'
 
 

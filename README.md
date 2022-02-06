@@ -20,10 +20,11 @@
 pip install -r requirements.txt
 ```
 
-Исправить настройки в файле render.py, например разрешение Ultra HD 4K 3840×2160 и частоту кадров 24 кадра в секунду.
+Скопировать файл render_settings.py.template в файл render_settings.py и исправить настройки, например разрешение Ultra HD 4K 3840×2160 и частоту кадров 24 кадра в секунду.
 
 ```bash
 chcp 65001 & @rem on Windows only!
+cp render_settings.py.template render_settings.py
 python eve_sde_tools.py
 python story_of_eve_corp.py -i ./input -o ./output -v
 ffmpeg -i ./output/%05d.png -vf "scale=3840:2160,fps=24" video.mp4

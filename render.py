@@ -5,74 +5,7 @@ import datetime
 import csv
 
 import eve_sde_tools
-
-
-# Смотрим рекомендуемые настройки кодирования здесь https://support.google.com/youtube/answer/1722171?hl=ru
-# выбираем частоту кадров, разрешение и соотношение сторон, останавливаемся на Ultra HD 4K.
-# Внимание! крайне не рекомендуется менять следующие параметры, задавая их отличными от одного из перечисленных
-# по ссылке вариантов, во избежание перекодирования изображений сгенерированных этой программой. Изображения содержат
-# текст, которые после переконвертации может стать плохочитаемым.
-RENDER_WIDTH: int = 3840
-RENDER_HEIGHT: int = 2160
-RENDER_FRAME_RATE: int = 24  # 24
-SOLAR_SYSTEM_FATNESS: float = 2.0
-LUMINOSITY_MIN_BOUND: int = 50  # 50 хорошо в тёмное время суток на тёмном экране, 100 днём очень ярко для killmails
-LUMINOSITY_MAX_BOUND: int = 255
-NUMBER_OF_EVENTS: int = 50
-NUMBER_OF_KILLMAILS_IN_LIST: int = 40  # шрифт используется такой же, регион для killmails занимает меньше места
-KILLMAIL_MAP_MIN_ALPHA: float = 220  # 255 максимальный уровень непрозрачности
-KILLMAIL_MAP_MAX_ALPHA: float = 50   # 0 максимальный уровень прозрачности
-KILLMAIL_MIN_FATNESS: float = SOLAR_SYSTEM_FATNESS * 4  # маркер гибели корабля больше солнечной системы, далее по массе
-INDUSTRY_MIN_FATNESS: float = SOLAR_SYSTEM_FATNESS * 5  # маркер производства больше солнечной системы, далее по ранам
-INDUSTRY_MAP_MIN_ALPHA: float = 220  # 255 максимальный уровень непрозрачности
-INDUSTRY_MAP_MAX_ALPHA: float = 128  # 0 максимальный уровень прозрачности
-MARKET_MAP_MIN_ALPHA: float = 220    # 255 максимальный уровень непрозрачности
-MARKET_MAP_MAX_ALPHA: float = 128    # 0 максимальный уровень прозрачности
-# интервалы времени (д.б. согласованы с RENDER_FRAME_RATE)
-DURATION_DATE_SEC: int = 1  # одна дата рисуется 2 секунды
-DURATION_DATE: int = RENDER_FRAME_RATE * DURATION_DATE_SEC  # одна дата рисуется 2*24 фрейма, т.е. 2 секунды
-# цвета, выбираем тут https://www.computerhope.com/htmcolor.htm
-EVENTS_SETUP: ((int, int, int), int) = [
-    # color              duration sec
-    ((0xff, 0xe5, 0xb4), 8),  # peach (персиковый) warning "Hello, Qandra Si", живёт на экране 8 секунд
-    ((0xb6, 0xb6, 0xb4), 4),  # gray cloud (светло серый) notice "Qandra Si has come", живёт на экране 4 секунды
-    ((0x79, 0x79, 0x79), 3),  # platinum gray (сероватый) notice "Qandra Si gone", живёт на экране 3 секунды
-    ((0xc9, 0xc0, 0xbb), 5),  # pale silver (сёро жёлтая) надпись рекорд производственных работ, живёт 5 секунд
-    ((0x73, 0x7c, 0xa1), 5),  # slate blue grey (сёро голубая) надпись рекорд рыночных операций, живёт 5 секунд
-]
-KILLMAILS_SETUP: (int, int, int) = [
-    # color              duration sec
-    ((0xdc, 0x38, 0x1f), DURATION_DATE_SEC),      # (в списке событий killmail не упоминается), живёт на экране одни сутки
-    ((0xdc, 0x38, 0x1f), DURATION_DATE_SEC * 2),  # grapefruit (красный) warning "Zorky Graf Tumidus lost Rhea", живёт на экране 2 суток
-    ((0x12, 0xad, 0x2b), DURATION_DATE_SEC),      # (в списке событий killmail не упоминается), живёт на экране одни сутки
-    ((0x12, 0xad, 0x2b), DURATION_DATE_SEC * 2),  # parrot green (зелёный) warning "Astrahus destroyed by 240 pilots", живёт на экране 2 суток
-]
-INDUSTRY_SETUP: (int, int, int) = (0xff, 0xdf, 0x00)  # golden yellow (жёлтый) производственные работы
-MARKET_SETUP: (int, int, int) = (0x5c, 0xb3, 0xff)    # crystal blue (синий) операции на рынке
-
-# формат csv файла events-utf8.txt
-FILE_EVENTS_NAME: str = "events-utf8.txt"
-FILE_EVENTS_COL_DATE: int = 0
-FILE_EVENTS_COL_LEVEL: int = 1
-FILE_EVENTS_COL_TXT: int = 2
-# формат csv файла killmails-utf8.txt
-FILE_KILLMAILS_NAME: str = "killmails-utf8.txt"
-FILE_KILLMAILS_COL_DATE: int = 0
-FILE_KILLMAILS_COL_VICTIM: int = 1
-FILE_KILLMAILS_COL_SHIPTYPE: int = 2
-FILE_KILLMAILS_COL_MASS: int = 3
-FILE_KILLMAILS_COL_TXT: int = 4
-FILE_KILLMAILS_COL_SYSTEM: int = 5
-# формат csv файла industry_jobs-utf8.txt
-FILE_INDUSTRY_NAME: str = "industry_jobs-utf8.txt"
-FILE_INDUSTRY_COL_DATE: int = 0
-FILE_INDUSTRY_COL_JOBS: int = 1
-FILE_INDUSTRY_COL_SYSTEM: int = 2
-# формат csv файла market-utf8.txt
-FILE_MARKET_NAME: str = "market-utf8.txt"
-FILE_MARKET_COL_DATE: int = 0
-FILE_MARKET_COL_SYSTEM: int = 1
-FILE_MARKET_COL_ISK: int = 2
+import render_settings
 
 
 class RenderScale:
@@ -89,8 +22,8 @@ class RenderScale:
         self.universe_width: float = 0.0
         self.universe_height: float = 0.0
         # настройки рендеринга изображения
-        self.render_center_width: float = RENDER_WIDTH / 2.0
-        self.render_half_height: float = RENDER_HEIGHT / 2.0  # выполняет роль стороны квадрата, куда будут вписаны SS
+        self.render_center_width: float = render_settings.RENDER_WIDTH / 2.0
+        self.render_half_height: float = render_settings.RENDER_HEIGHT / 2.0  # выполняет роль стороны квадрата, куда будут вписаны SS
         self.scale_x: float = 0.0
         self.scale_z: float = 0.0
         self.scale_luminosity: float = 0.0
@@ -127,20 +60,20 @@ class RenderScale:
         self.universe_width = self.max_x - self.min_x
         self.universe_height = self.max_z - self.min_z
         # поскольку прямоугольник изображения горизонтально-ориентированный, то по высоте он короче...
-        self.scale_z = RENDER_HEIGHT / self.universe_height
-        self.scale_x = RENDER_HEIGHT / self.universe_width
+        self.scale_z = render_settings.RENDER_HEIGHT / self.universe_height
+        self.scale_x = render_settings.RENDER_HEIGHT / self.universe_width
         # рассчитываем позицию региона, где будут появляться события
         self.left_bound_of_events: int = int(self.render_center_width + (self.max_x-self.universe_center_x)*self.scale_x) + 20
         # расчёт светимости, берём мощность от яркости, как корень квадратный
         self.min_luminosity = sqrt(self.min_luminosity)
         self.max_luminosity = sqrt(self.max_luminosity)
-        self.scale_luminosity: float = (LUMINOSITY_MAX_BOUND - LUMINOSITY_MIN_BOUND) / (self.max_luminosity - self.min_luminosity)
+        self.scale_luminosity: float = (render_settings.LUMINOSITY_MAX_BOUND - render_settings.LUMINOSITY_MIN_BOUND) / (self.max_luminosity - self.min_luminosity)
 
     def choose_font_size(self):
         self.fontsize: int = 10  # начальный размер шрифта
         font = ImageFont.truetype("arial.ttf", self.fontsize)
         # итерируемся по размерам шрифтов так, чтобы в высоту изображения влезло N строк
-        while font.getsize("Qandra Si")[1] < (RENDER_HEIGHT / NUMBER_OF_EVENTS):
+        while font.getsize("Qandra Si")[1] < (render_settings.RENDER_HEIGHT / render_settings.NUMBER_OF_EVENTS):
             self.fontsize += 1
             font = ImageFont.truetype("arial.ttf", self.fontsize)
         # опционально уменьшаем размер шрифта, чтобы была уверенность, что символы не будут наползать друг на друга
@@ -151,9 +84,9 @@ class RenderScale:
 class RenderFadeInEvent:
     def __init__(self, txt: str, level: int):
         self.txt: str = txt
-        self.__color: (int, int, int) = EVENTS_SETUP[level][0]
+        self.__color: (int, int, int) = render_settings.EVENTS_SETUP[level][0]
         self.opacity: float = 1.0
-        lifetime_frames: int = EVENTS_SETUP[level][1] * RENDER_FRAME_RATE
+        lifetime_frames: int = render_settings.EVENTS_SETUP[level][1] * render_settings.RENDER_FRAME_RATE
         self.transparency_frame: float = 1.0 / lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
 
     def pass_frame(self):
@@ -200,14 +133,14 @@ class RenderFadeInKillmail:
                 self.__level: int = 2
             else:
                 self.__level: int = 3
-        self.__color: typing.Optional[(int, int, int)] = KILLMAILS_SETUP[self.__level][0]
+        self.__color: typing.Optional[(int, int, int)] = render_settings.KILLMAILS_SETUP[self.__level][0]
         self.txt: str = txt
         self.mass: float = ship_mass
         self.x: typing.Optional[float] = x
         self.z: typing.Optional[float] = z
         self.opacity: float = 1.0
         self.frame_num: int = 1
-        self.lifetime_frames: int = KILLMAILS_SETUP[self.__level][1] * RENDER_FRAME_RATE
+        self.lifetime_frames: int = render_settings.KILLMAILS_SETUP[self.__level][1] * render_settings.RENDER_FRAME_RATE
         self.transparency_frame: float = 1.0 / self.lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
 
     def pass_frame(self):
@@ -239,15 +172,15 @@ class RenderFadeInKillmail:
 
     @property
     def map_alpha(self) -> int:
-        return int(KILLMAIL_MAP_MIN_ALPHA + (1.0-self.opacity) * (KILLMAIL_MAP_MAX_ALPHA - KILLMAIL_MAP_MIN_ALPHA))
+        return int(render_settings.KILLMAIL_MAP_MIN_ALPHA + (1.0-self.opacity) * (render_settings.KILLMAIL_MAP_MAX_ALPHA - render_settings.KILLMAIL_MAP_MIN_ALPHA))
 
     @property
     def map_radius(self) -> float:
         # в первые треть секунды радиус взрыва растёт, пока на достигнет эквивалента массы
         boom_radius: float = self.mass / 50000000  # Rhea 960'000'000, Capsule 32'000, Venture 1'200'000
-        if boom_radius < KILLMAIL_MIN_FATNESS:
-            boom_radius = KILLMAIL_MIN_FATNESS
-        half_sec_frames: int = int((RENDER_FRAME_RATE + 1) / 3)
+        if boom_radius < render_settings.KILLMAIL_MIN_FATNESS:
+            boom_radius = render_settings.KILLMAIL_MIN_FATNESS
+        half_sec_frames: int = int((render_settings.RENDER_FRAME_RATE + 1) / 3)
         if self.frame_num < half_sec_frames:
             boom_radius *= self.frame_num / half_sec_frames
         return boom_radius
@@ -263,12 +196,12 @@ class RenderFadeInIndustry:
         self.x: typing.Optional[float] = x
         self.z: typing.Optional[float] = z
         self.frame_num: int = 1
-        self.transparency_frame: float = 2.0 / (RENDER_FRAME_RATE * DURATION_DATE_SEC)  # мера прозрачности, добавляемая каждый фрейм
+        self.transparency_frame: float = 2.0 / (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)  # мера прозрачности, добавляемая каждый фрейм
         self.opacity: float = 0.0
 
     def pass_frame(self):
         self.frame_num += 1
-        if self.frame_num < (RENDER_FRAME_RATE * DURATION_DATE_SEC + 1) / 2:
+        if self.frame_num < (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2:
             self.opacity += self.transparency_frame
             if self.opacity > 1.0:
                 self.opacity = 1.0
@@ -279,25 +212,25 @@ class RenderFadeInIndustry:
 
     @property
     def disappeared(self) -> bool:
-        return self.frame_num > (RENDER_FRAME_RATE * DURATION_DATE_SEC)
+        return self.frame_num > (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)
 
     @property
     def map_color(self) -> (int, int, int):
-        return INDUSTRY_SETUP
+        return render_settings.INDUSTRY_SETUP
 
     @property
     def map_alpha(self) -> int:
-        return int(INDUSTRY_MAP_MIN_ALPHA + (1.0-self.opacity) * (INDUSTRY_MAP_MAX_ALPHA - INDUSTRY_MAP_MIN_ALPHA))
+        return int(render_settings.INDUSTRY_MAP_MIN_ALPHA + (1.0-self.opacity) * (render_settings.INDUSTRY_MAP_MAX_ALPHA - render_settings.INDUSTRY_MAP_MIN_ALPHA))
 
     @property
     def map_radius(self) -> float:
         industry_radius: float = 13 * self.runs / 1000  # 2022-02-02 : 2581 работ
-        half_date_frames: int = int((RENDER_FRAME_RATE * DURATION_DATE_SEC + 1) / 2)
+        half_date_frames: int = int((render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2)
         if self.frame_num < half_date_frames:
             industry_radius *= self.frame_num / half_date_frames
         else:
-            industry_radius *= (RENDER_FRAME_RATE * DURATION_DATE_SEC - self.frame_num) / half_date_frames
-        return INDUSTRY_MIN_FATNESS + industry_radius
+            industry_radius *= (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC - self.frame_num) / half_date_frames
+        return render_settings.INDUSTRY_MIN_FATNESS + industry_radius
 
 
 class RenderFadeInMarket:
@@ -310,12 +243,12 @@ class RenderFadeInMarket:
         self.x: typing.Optional[float] = x
         self.z: typing.Optional[float] = z
         self.frame_num: int = 1
-        self.transparency_frame: float = 2.0 / (RENDER_FRAME_RATE * DURATION_DATE_SEC)  # мера прозрачности, добавляемая каждый фрейм
+        self.transparency_frame: float = 2.0 / (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)  # мера прозрачности, добавляемая каждый фрейм
         self.opacity: float = 0.0
 
     def pass_frame(self):
         self.frame_num += 1
-        if self.frame_num < (RENDER_FRAME_RATE * DURATION_DATE_SEC + 1) / 2:
+        if self.frame_num < (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2:
             self.opacity += self.transparency_frame
             if self.opacity > 1.0:
                 self.opacity = 1.0
@@ -326,25 +259,25 @@ class RenderFadeInMarket:
 
     @property
     def disappeared(self) -> bool:
-        return self.frame_num > (RENDER_FRAME_RATE * DURATION_DATE_SEC)
+        return self.frame_num > (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC)
 
     @property
     def map_color(self) -> (int, int, int):
-        return MARKET_SETUP
+        return render_settings.MARKET_SETUP
 
     @property
     def map_alpha(self) -> int:
-        return int(MARKET_MAP_MIN_ALPHA + (1.0-self.opacity) * (MARKET_MAP_MAX_ALPHA - MARKET_MAP_MIN_ALPHA))
+        return int(render_settings.MARKET_MAP_MIN_ALPHA + (1.0-self.opacity) * (render_settings.MARKET_MAP_MAX_ALPHA - render_settings.MARKET_MAP_MIN_ALPHA))
 
     @property
     def map_radius(self) -> float:
         market_radius: float = 13 * self.isk / 20000000000  # 2021-12-09 : 74'161'872'333 isk
-        half_date_frames: int = int((RENDER_FRAME_RATE * DURATION_DATE_SEC + 1) / 2)
+        half_date_frames: int = int((render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC + 1) / 2)
         if self.frame_num < half_date_frames:
             market_radius *= self.frame_num / half_date_frames
         else:
-            market_radius *= (RENDER_FRAME_RATE * DURATION_DATE_SEC - self.frame_num) / half_date_frames
-        return INDUSTRY_MIN_FATNESS + market_radius
+            market_radius *= (render_settings.RENDER_FRAME_RATE * render_settings.DURATION_DATE_SEC - self.frame_num) / half_date_frames
+        return render_settings.MARKET_MIN_FATNESS + market_radius
 
 
 class RenderFadeInRepository:
@@ -355,8 +288,8 @@ class RenderFadeInRepository:
         self.market: typing.List[RenderFadeInMarket] = []
 
     def add_event(self, item: RenderFadeInEvent):
-        if len(self.events) == NUMBER_OF_EVENTS:
-            del self.events[NUMBER_OF_EVENTS-1]
+        if len(self.events) == render_settings.NUMBER_OF_EVENTS:
+            del self.events[render_settings.NUMBER_OF_EVENTS-1]
         self.events.insert(0, item)
 
     def add_killmail(self, item: RenderFadeInKillmail):
@@ -447,8 +380,8 @@ class RenderUniverse:
     def draw_solar_system(self, x: float, z: float, luminosity: float):
         __x: float = self.scale.render_center_width + (x - self.scale.universe_center_x) * self.scale.scale_x
         __z: float = self.scale.render_half_height - (z - self.scale.universe_center_z) * self.scale.scale_z
-        __fatness: float = SOLAR_SYSTEM_FATNESS
-        __luminosity: int = int(LUMINOSITY_MIN_BOUND + (sqrt(luminosity) - self.scale.min_luminosity) * self.scale.scale_luminosity)
+        __fatness: float = render_settings.SOLAR_SYSTEM_FATNESS
+        __luminosity: int = int(render_settings.LUMINOSITY_MIN_BOUND + (sqrt(luminosity) - self.scale.min_luminosity) * self.scale.scale_luminosity)
         __shape = [(__x - __fatness, __z - __fatness), (__x + __fatness, __z + __fatness)]
         self.img_draw.ellipse(__shape, fill=(__luminosity, __luminosity, __luminosity))
 
@@ -465,15 +398,15 @@ class RenderUniverse:
     def draw_events_list(self, events: typing.List[RenderFadeInEvent]):
         __x: int = self.scale.left_bound_of_events
         for (idx, e) in enumerate(events):
-            __y: float = RENDER_HEIGHT - idx*RENDER_HEIGHT/NUMBER_OF_EVENTS - self.scale.fontsize
+            __y: float = render_settings.RENDER_HEIGHT - idx*render_settings.RENDER_HEIGHT/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
             self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
 
     def draw_killmails_list(self, killmails: typing.List[RenderFadeInKillmail]):
         __x: int = 0  # self.scale.left_bound_of_events
         for (idx, k) in enumerate(killmails):
-            if idx == NUMBER_OF_KILLMAILS_IN_LIST:
+            if idx == render_settings.NUMBER_OF_KILLMAILS_IN_LIST:
                 break
-            __y: float = RENDER_HEIGHT - idx*RENDER_HEIGHT/NUMBER_OF_EVENTS - self.scale.fontsize
+            __y: float = render_settings.RENDER_HEIGHT - idx*render_settings.RENDER_HEIGHT/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
             self.img_draw.text((__x, __y), k.txt, fill=k.list_color, font=self.events_font)
 
     def draw_killmails_map(self, killmails: typing.List[RenderFadeInKillmail]):
@@ -495,6 +428,23 @@ class RenderUniverse:
         self.img_draw.text((__x, 10), date, fill=(140, 140, 140), font=self.date_font)
 
 
+def read_csv_file(
+        fname: str,
+        file_date_col: int,
+        start_date: typing.Optional[datetime.datetime],
+        stop_date: typing.Optional[datetime.datetime]) -> typing.List[typing.List[str]]:
+    list_with_dates: typing.List[typing.List[str]] = []
+    with open(fname, newline='', encoding='utf8') as f:
+        reader = csv.reader(f, delimiter='\t')
+        for row in reader:
+            dt = datetime.datetime.strptime(row[file_date_col], '%Y-%m-%d')
+            if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
+               stop_date and (stop_date <= dt) or not start_date and not stop_date:
+                list_with_dates.append(row)
+        del reader
+    return list_with_dates
+
+
 def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, date_to: str, verbose: bool = False):
     sde_names = eve_sde_tools.read_converted(cwd, "invNames")
     if verbose:
@@ -511,7 +461,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         print("Min and max positions:", render_scale.min_x, render_scale.max_x, render_scale.min_z, render_scale.max_z)
         print("Center positions:", render_scale.universe_center_x, render_scale.universe_center_z)
         print("Min and max luminosity:", render_scale.min_luminosity, render_scale.max_luminosity)
-        print('Scale {} {} for {}x{} bitmap'.format(render_scale.scale_x, render_scale.scale_z, RENDER_WIDTH, RENDER_HEIGHT))
+        print('Scale {} {} for {}x{} bitmap'.format(render_scale.scale_x, render_scale.scale_z, render_settings.RENDER_WIDTH, render_settings.RENDER_HEIGHT))
         print('Rectangle of universe in bitmap {} x {} : {} x {}'.format(
             render_scale.render_center_width + (render_scale.min_x-render_scale.universe_center_x)*render_scale.scale_x,
             render_scale.render_half_height - (render_scale.min_z-render_scale.universe_center_z)*render_scale.scale_z,
@@ -519,8 +469,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             render_scale.render_half_height - (render_scale.max_z-render_scale.universe_center_z)*render_scale.scale_z))
         print('Scale {} of luminosity for min {} and max {}'.format(
             render_scale.scale_luminosity,
-            LUMINOSITY_MIN_BOUND+render_scale.min_luminosity*render_scale.scale_luminosity,
-            LUMINOSITY_MIN_BOUND+(render_scale.max_luminosity-render_scale.min_luminosity)*render_scale.scale_luminosity))
+            render_settings.LUMINOSITY_MIN_BOUND+render_scale.min_luminosity*render_scale.scale_luminosity,
+            render_settings.LUMINOSITY_MIN_BOUND+(render_scale.max_luminosity-render_scale.min_luminosity)*render_scale.scale_luminosity))
     # настраиваем шрифты, которым будем рисовать события даты и т.п.
     events_font = ImageFont.truetype("arial.ttf", render_scale.fontsize)
     date_font = ImageFont.truetype("arial.ttf", render_scale.fontsize)
@@ -529,45 +479,18 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     stop_date = datetime.datetime.strptime(date_to, '%Y-%m-%d') if date_to else None
 
     # читаем данные из файлов
-    events_with_dates = []
-    with open('{}/{}'.format(input_dir, FILE_EVENTS_NAME), newline='', encoding='utf8') as f:
-        reader = csv.reader(f, delimiter='\t')
-        for row in reader:
-            dt = datetime.datetime.strptime(row[FILE_EVENTS_COL_DATE], '%Y-%m-%d')
-            if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
-               stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                events_with_dates.append(row)
-        del reader
-    # ---
-    killmails_with_dates = []
-    with open('{}/{}'.format(input_dir, FILE_KILLMAILS_NAME), newline='', encoding='utf8') as f:
-        reader = csv.reader(f, delimiter='\t')
-        for row in reader:
-            dt = datetime.datetime.strptime(row[FILE_KILLMAILS_COL_DATE], '%Y-%m-%d')
-            if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
-               stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                killmails_with_dates.append(row)
-        del reader
-    # ---
-    industry_with_dates = []
-    with open('{}/{}'.format(input_dir, FILE_INDUSTRY_NAME), newline='', encoding='utf8') as f:
-        reader = csv.reader(f, delimiter='\t')
-        for row in reader:
-            dt = datetime.datetime.strptime(row[FILE_INDUSTRY_COL_DATE], '%Y-%m-%d')
-            if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
-               stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                industry_with_dates.append(row)
-        del reader
-    # ---
-    market_with_dates = []
-    with open('{}/{}'.format(input_dir, FILE_MARKET_NAME), newline='', encoding='utf8') as f:
-        reader = csv.reader(f, delimiter='\t')
-        for row in reader:
-            dt = datetime.datetime.strptime(row[FILE_MARKET_COL_DATE], '%Y-%m-%d')
-            if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
-               stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                market_with_dates.append(row)
-        del reader
+    events_with_dates = read_csv_file(
+        '{}/{}'.format(input_dir, render_settings.FILE_EVENTS_NAME), render_settings.FILE_EVENTS_COL_DATE,
+        start_date, stop_date)
+    killmails_with_dates = read_csv_file(
+        '{}/{}'.format(input_dir, render_settings.FILE_KILLMAILS_NAME), render_settings.FILE_KILLMAILS_COL_DATE,
+        start_date, stop_date)
+    industry_with_dates = read_csv_file(
+        '{}/{}'.format(input_dir, render_settings.FILE_INDUSTRY_NAME), render_settings.FILE_INDUSTRY_COL_DATE,
+        start_date, stop_date)
+    market_with_dates = read_csv_file(
+        '{}/{}'.format(input_dir, render_settings.FILE_MARKET_NAME), render_settings.FILE_MARKET_COL_DATE,
+        start_date, stop_date)
 
     # определяем диапазон дат, которые будут участвовать в создании кадров
     if start_date:
@@ -575,13 +498,13 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     else:
         dts: typing.List[str] = []
         if events_with_dates:
-            dts.append(events_with_dates[0][FILE_EVENTS_COL_DATE])
+            dts.append(events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE])
         if killmails_with_dates:
-            dts.append(killmails_with_dates[0][FILE_KILLMAILS_COL_DATE])
+            dts.append(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_DATE])
         if industry_with_dates:
-            dts.append(industry_with_dates[0][FILE_INDUSTRY_COL_DATE])
+            dts.append(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_DATE])
         if market_with_dates:
-            dts.append(market_with_dates[0][FILE_MARKET_COL_DATE])
+            dts.append(market_with_dates[0][render_settings.FILE_MARKET_COL_DATE])
         render_date = None
         for dt in dts:
             dtd = datetime.datetime.strptime(dt, '%Y-%m-%d')
@@ -591,13 +514,13 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     if not stop_date:
         dtf: typing.List[str] = []
         if events_with_dates:
-            dtf.append(events_with_dates[-1][FILE_EVENTS_COL_DATE])
+            dtf.append(events_with_dates[-1][render_settings.FILE_EVENTS_COL_DATE])
         if killmails_with_dates:
-            dtf.append(killmails_with_dates[-1][FILE_KILLMAILS_COL_DATE])
+            dtf.append(killmails_with_dates[-1][render_settings.FILE_KILLMAILS_COL_DATE])
         if industry_with_dates:
-            dtf.append(industry_with_dates[-1][FILE_INDUSTRY_COL_DATE])
+            dtf.append(industry_with_dates[-1][render_settings.FILE_INDUSTRY_COL_DATE])
         if market_with_dates:
-            dtf.append(market_with_dates[-1][FILE_MARKET_COL_DATE])
+            dtf.append(market_with_dates[-1][render_settings.FILE_MARKET_COL_DATE])
         stop_date = None
         for dt in dtf:
             dtd = datetime.datetime.strptime(dt, '%Y-%m-%d')
@@ -628,10 +551,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         # добавляем события "сегодняшнего дня" в список отрисовки
         if events_with_dates:
             num_new_events: int = 0
-            while render_date_str == events_with_dates[0][FILE_EVENTS_COL_DATE]:
+            while render_date_str == events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE]:
                 e: RenderFadeInEvent = RenderFadeInEvent(
-                    events_with_dates[0][FILE_EVENTS_COL_TXT],
-                    int(events_with_dates[0][FILE_EVENTS_COL_LEVEL]))
+                    events_with_dates[0][render_settings.FILE_EVENTS_COL_TXT],
+                    int(events_with_dates[0][render_settings.FILE_EVENTS_COL_LEVEL]))
                 render_fade_in.add_event(e)
                 num_new_events += 1
                 del events_with_dates[0]
@@ -641,13 +564,13 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 print(' {} new events'.format(num_new_events))
         if killmails_with_dates:
             num_new_killmails: int = 0
-            while render_date_str == killmails_with_dates[0][FILE_KILLMAILS_COL_DATE]:
-                p = sde_positions.get(killmails_with_dates[0][FILE_KILLMAILS_COL_SYSTEM])
+            while render_date_str == killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_DATE]:
+                p = sde_positions.get(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SYSTEM])
                 k: RenderFadeInKillmail = RenderFadeInKillmail(
-                    killmails_with_dates[0][FILE_KILLMAILS_COL_VICTIM] == '1',
-                    killmails_with_dates[0][FILE_KILLMAILS_COL_TXT],
-                    int(killmails_with_dates[0][FILE_KILLMAILS_COL_SHIPTYPE]),
-                    float(killmails_with_dates[0][FILE_KILLMAILS_COL_MASS]),
+                    killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_VICTIM] == '1',
+                    killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_TXT],
+                    int(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SHIPTYPE]),
+                    float(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_MASS]),
                     p[0] if p is not None else None, p[2] if p is not None else None)
                 render_fade_in.add_killmail(k)
                 num_new_killmails += 1
@@ -658,13 +581,13 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 print(' {} new killmails'.format(num_new_killmails))
         if industry_with_dates:
             num_new_industry_jobs: int = 0
-            while render_date_str == industry_with_dates[0][FILE_INDUSTRY_COL_DATE]:
-                p = sde_positions.get(industry_with_dates[0][FILE_INDUSTRY_COL_SYSTEM])
+            while render_date_str == industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_DATE]:
+                p = sde_positions.get(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_SYSTEM])
                 k: RenderFadeInIndustry = RenderFadeInIndustry(
-                    int(industry_with_dates[0][FILE_INDUSTRY_COL_JOBS]),
+                    int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_JOBS]),
                     p[0] if p is not None else None, p[2] if p is not None else None)
                 render_fade_in.add_industry(k)
-                num_new_industry_jobs += int(industry_with_dates[0][FILE_INDUSTRY_COL_JOBS])
+                num_new_industry_jobs += int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_JOBS])
                 del industry_with_dates[0]
                 if not industry_with_dates:
                     break
@@ -678,13 +601,13 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 render_fade_in.add_event(e)
         if market_with_dates:
             sum_isk_per_day: int = 0
-            while render_date_str == market_with_dates[0][FILE_MARKET_COL_DATE]:
-                p = sde_positions.get(market_with_dates[0][FILE_MARKET_COL_SYSTEM])
+            while render_date_str == market_with_dates[0][render_settings.FILE_MARKET_COL_DATE]:
+                p = sde_positions.get(market_with_dates[0][render_settings.FILE_MARKET_COL_SYSTEM])
                 k: RenderFadeInMarket = RenderFadeInMarket(
-                    float(market_with_dates[0][FILE_MARKET_COL_ISK]),
+                    float(market_with_dates[0][render_settings.FILE_MARKET_COL_ISK]),
                     p[0] if p is not None else None, p[2] if p is not None else None)
                 render_fade_in.add_market(k)
-                sum_isk_per_day += int(float(market_with_dates[0][FILE_MARKET_COL_ISK]))
+                sum_isk_per_day += int(float(market_with_dates[0][render_settings.FILE_MARKET_COL_ISK]))
                 del market_with_dates[0]
                 if not market_with_dates:
                     break
@@ -698,9 +621,9 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 render_fade_in.add_event(e)
 
         # ---
-        for frame_idx in range(DURATION_DATE):
+        for frame_idx in range(render_settings.DURATION_DATE):
             # создаём канву на которой будем рисовать
-            canvas = Image.new('RGB', (RENDER_WIDTH, RENDER_HEIGHT), 'black')
+            canvas = Image.new('RGB', (render_settings.RENDER_WIDTH, render_settings.RENDER_HEIGHT), 'black')
             img_draw = ImageDraw.Draw(canvas, 'RGB')
             # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
 
