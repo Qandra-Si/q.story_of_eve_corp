@@ -117,3 +117,16 @@ from (
 order by 1;
 -- 2022-02-05	30045352	12998000
 -- 2022-02-05	30000142	11631756263
+
+-- employment_interval-utf8.txt
+select
+ main_pilot_id,
+ pilot_id,
+ main_pilot_name,
+ pilot_name,
+ date(enter_time),
+ date(gone_time)
+from seat.qview_employment_interval
+order by 1, 2;
+-- 93362315	91996495	Burenka Ololoev	Lord Brother Captain	2018-03-24	
+-- 93362315	92932199	Burenka Ololoev	miztrezz	2018-12-18	

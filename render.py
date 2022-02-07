@@ -391,12 +391,52 @@ class RenderFadeInRepository:
 
 
 class RenderPilots:
-    def __init__(self):
-        # коллекция пилотов (их идентификаторов) для отслеживания активности в корпорации
-        self.pilot_ids: typing.List[int] = []
+    def __init__(
+            self,
+            employment_with_dates: typing.List[typing.List[str]],
+            pilot_img: Image,
+            pilot_contour_img: Image):
+        # иконки для рисования пилотов
+        self.pilot_img = pilot_img
+        self.pilot_contour_img = pilot_contour_img
+        # ПОЛУПРОЗРАЧНЫЕ иконки для рисования пилотов
+        __pilot_img = Image.new('RGB', self.pilot_img.size, 0)
+        __pilot_img.paste(self.pilot_img, (0, 0), self.pilot_img)
+        __pilot_contour_img = Image.new('RGB', self.pilot_contour_img.size, 0)
+        __pilot_contour_img.paste(self.pilot_contour_img, (0, 0), self.pilot_contour_img)
+        # ---
+        self.pilot_1st = __pilot_img.copy()
+        self.pilot_1st.putalpha(0x33)
+        self.pilot_2nd = __pilot_img.copy()
+        self.pilot_2nd.putalpha(0x66)
+        self.pilot_3rd = __pilot_img.copy()
+        self.pilot_3rd.putalpha(0x99)
+        self.pilot_4th = __pilot_img.copy()
+        self.pilot_4th.putalpha(0xcc)
+        # ---
+        self.contour_img_1st = __pilot_contour_img.copy()
+        self.contour_img_1st.putalpha(0x33)
+        self.contour_img_2nd = __pilot_contour_img.copy()
+        self.contour_img_2nd.putalpha(0x66)
+        self.contour_img_3rd = __pilot_contour_img.copy()
+        self.contour_img_3rd.putalpha(0x99)
+        self.contour_img_4th = __pilot_contour_img.copy()
+        self.contour_img_4th.putalpha(0xcc)
 
-    def add_pilot(self, pilot_id: int):
-        self.pilot_ids.append(pilot_id)
+        # коллекция пилотов (их идентификаторов) для отслеживания активности в корпорации
+        self.pilots: typing.List[(int, int, str, str, datetime.date, typing.Optional[datetime.date])] = []
+        for p in employment_with_dates:
+            enter: datetime.date = datetime.datetime.strptime(p[render_settings.FILE_EMPLOYMENT_COL_ENTER_DATE], '%Y-%m-%d')
+            gone_str: str = p[render_settings.FILE_EMPLOYMENT_COL_GONE_DATE]
+            gone: typing.Optional[datetime.date] = datetime.datetime.strptime(gone_str, '%Y-%m-%d') if gone_str else None
+            self.pilots.append((
+                int(p[render_settings.FILE_EMPLOYMENT_COL_MAIN_ID]),
+                int(p[render_settings.FILE_EMPLOYMENT_COL_TWINK_ID]),
+                p[render_settings.FILE_EMPLOYMENT_COL_MAIN_NAME],
+                p[render_settings.FILE_EMPLOYMENT_COL_TWINK_NAME],
+                enter,
+                gone,
+            ))
 
 
 class RenderUniverse:
@@ -407,17 +447,13 @@ class RenderUniverse:
             scale: RenderScale,
             date_font: ImageFont,
             events_font: ImageFont,
-            killmails_font: ImageFont,
-            pilot_img: Image,
-            pilot_contour_img: Image):
+            killmails_font: ImageFont):
         self.canvas = canvas
         self.img_draw = img_draw
         self.scale = scale
         self.date_font = date_font
         self.events_font = events_font
         self.killmails_font = killmails_font
-        self.pilot_img = pilot_img
-        self.pilot_contour_img = pilot_contour_img
 
     @staticmethod
     def create_transparent_ellipse(radius: float, blur_size: int, color: (int, int, int), alpha: int):
@@ -492,36 +528,70 @@ class RenderUniverse:
     def draw_date_caption(self, date: str):
         self.img_draw.text((self.scale.date_left_bound, self.scale.date_top_bound), date, fill=(140, 140, 140), font=self.date_font)
 
-    def draw_pilots(self, pilots: RenderPilots):
+    def draw_pilots(self, pilots: RenderPilots, render_date: datetime.datetime, transparency: float):
+        width: int = pilots.pilot_1st.width + 4
+        height: int = pilots.pilot_1st.height + 4
+        right_bound: int = self.scale.date_left_bound - width
+        # ---
         x: int = self.scale.left_bound_of_pilots
         y: int = self.scale.top_bound_of_pilots
-        width: int = self.pilot_img.width + 4
-        height: int = self.pilot_img.height + 4
-        right_bound: int = self.scale.date_left_bound - width
-        for p in pilots.pilot_ids:
-            if p == 0:  # TODO: main_pilot_id
-                self.canvas.paste(self.pilot_img, (x, y), self.pilot_img)
-            else:  # TODO: pilot_id
-                self.canvas.paste(self.pilot_contour_img, (x, y), self.pilot_contour_img)
-            x += width
-            if x >= right_bound:
-                x = self.scale.left_bound_of_pilots
-                y += height
+        # ---
+        main_pilot_id: typing.Optional[int] = None
+        for p in pilots.pilots:
+            main: int = p[render_settings.FILE_EMPLOYMENT_COL_MAIN_ID]
+            enter: datetime.date = p[render_settings.FILE_EMPLOYMENT_COL_ENTER_DATE]
+            gone: typing.Optional[datetime.date] = p[render_settings.FILE_EMPLOYMENT_COL_GONE_DATE]
+            if enter <= render_date and (gone is None or render_date <= gone):
+                # выбор картинок, которыми будем пользоваться
+                if enter == render_date or (gone and gone == render_date):
+                    if transparency < 0.25:
+                        fill, contour = pilots.pilot_1st, pilots.contour_img_1st
+                    elif transparency < 0.5:
+                        fill, contour = pilots.pilot_2nd, pilots.contour_img_2nd
+                    elif transparency < 0.75:
+                        fill, contour = pilots.pilot_3rd, pilots.contour_img_3rd
+                    else:  # if transparency < 0.8:
+                        fill, contour = pilots.pilot_4th, pilots.contour_img_4th
+                else:
+                    fill, contour = pilots.pilot_img, pilots.pilot_contour_img
+                # поскольку список отсортированный, то сбрасываем main-пилота как только он меняется
+                if main_pilot_id and main_pilot_id != main:
+                    main_pilot_id = None
+                # рисуем в списке main-пилота (в данном случае важет только идентификатор, сам main в корпу
+                # может войти позже - это зависит от того выбора, который сделал игрок)
+                if main_pilot_id is None:
+                    self.canvas.paste(fill, (x, y), fill)
+                    main_pilot_id = main
+                    x += width
+                    if x >= right_bound:
+                        x = self.scale.left_bound_of_pilots
+                        y += height
+                # рисуем в списке twink-пилота (и однократно main-пилота)
+                self.canvas.paste(contour, (x, y), contour)
+                x += width
+                if x >= right_bound:
+                    x = self.scale.left_bound_of_pilots
+                    y += height
 
 
 def read_csv_file(
         fname: str,
         file_date_col: int,
         start_date: typing.Optional[datetime.datetime],
-        stop_date: typing.Optional[datetime.datetime]) -> typing.List[typing.List[str]]:
+        stop_date: typing.Optional[datetime.datetime],
+        preload_early_dates: bool = False) -> typing.List[typing.List[str]]:
     list_with_dates: typing.List[typing.List[str]] = []
     with open(fname, newline='', encoding='utf8') as f:
         reader = csv.reader(f, delimiter='\t')
         for row in reader:
             dt = datetime.datetime.strptime(row[file_date_col], '%Y-%m-%d')
-            if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
-               stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                list_with_dates.append(row)
+            if preload_early_dates:
+                if stop_date and (dt <= stop_date) or not stop_date:
+                    list_with_dates.append(row)
+            else:
+                if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
+                   stop_date and (stop_date <= dt) or not start_date and not stop_date:
+                    list_with_dates.append(row)
         del reader
     return list_with_dates
 
@@ -572,6 +642,9 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     market_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_MARKET_NAME), render_settings.FILE_MARKET_COL_DATE,
         start_date, stop_date)
+    employment_with_dates = read_csv_file(
+        '{}/{}'.format(input_dir, render_settings.FILE_EMPLOYMENT_NAME), render_settings.FILE_EMPLOYMENT_COL_ENTER_DATE,
+        start_date, stop_date, preload_early_dates=True)
 
     # определяем диапазон дат, которые будут участвовать в создании кадров
     if start_date:
@@ -625,13 +698,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # верхние были над нижними
     sorted_solar_systems: typing.List[typing.Any] = list(sde_positions.values())
     sorted_solar_systems.sort(key=lambda ss: ss[1], reverse=False)
-    # конструируем коллекцию пилотов (членов корпораций)
-    pilots: RenderPilots = RenderPilots()
+
     # выбор размер пиктограммы пилота (в коллекции находятся размеры от 32px до 22px,
-    # где 32px соответствует высоте шрифта size=46)
+    # где 34px соответствует высоте шрифта size=46)
     pilot_img_height: int
-    if date_font.size >= 32:
-        pilot_img_height = 32
+    if date_font.size >= 36:
+        pilot_img_height = 36
     elif date_font.size <= 22:
         pilot_img_height = 22
     else:
@@ -639,6 +711,9 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # загрузка png изображений для отрисовки пиктограмм на карте
     pilot_img = Image.open("{}/images/pilot/fill_{}.png".format(cwd, pilot_img_height))
     pilot_contour_img = Image.open("{}/images/pilot/contour_{}.png".format(cwd, pilot_img_height))
+    # конструируем коллекцию пилотов (членов корпораций)
+    pilots: RenderPilots = RenderPilots(employment_with_dates, pilot_img, pilot_contour_img)
+    del employment_with_dates
 
     # номер фрейма, который задаёт имя файла и последовательно используется ffmpeg-программой
     image_index: int = 0
@@ -651,8 +726,6 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         if events_with_dates:
             num_new_events: int = 0
             while render_date_str == events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE]:
-                # TODO: удалить это отсюда (эмуляция добавления пилотов)
-                pilots.add_pilot(int(events_with_dates[0][render_settings.FILE_EVENTS_COL_LEVEL]))
                 e: RenderFadeInEvent = RenderFadeInEvent(
                     events_with_dates[0][render_settings.FILE_EVENTS_COL_TXT],
                     int(events_with_dates[0][render_settings.FILE_EVENTS_COL_LEVEL]))
@@ -729,12 +802,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
 
             # генерируем рисовалку вселенной и корпоративных событий
-            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, pilot_img, pilot_contour_img)
+            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
             for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
             # наносим на изображение список пилотов
-            renderer.draw_pilots(pilots)
+            renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
             # наносим дату на изображение
             renderer.draw_date_caption(render_date_str)
             # наносим на изображение надписи и тушим на их на шаг прозрачности
