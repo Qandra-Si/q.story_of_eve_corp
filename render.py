@@ -27,11 +27,17 @@ class RenderScale:
         self.scale_x: float = 0.0
         self.scale_z: float = 0.0
         self.scale_luminosity: float = 0.0
-        # размер шрифтов для рисования ндписей на картинке
+        # размер шрифтов для рисования надписей на картинке
         self.fontsize = 1
         self.left_bound_of_events: int = 0
         self.top_bound_of_events: int = 0
         self.bottom_bound_of_events: int = 8
+        # позиция вывода даты
+        self.date_left_bound: int = 0
+        self.date_top_bound: int = 8
+        # поправки для региона отображения списка пилотов
+        self.left_bound_of_pilots: int = 8
+        self.top_bound_of_pilots: int = 8
 
     def calc(self, sde_positions):
         self.min_x = None
@@ -66,6 +72,8 @@ class RenderScale:
         self.scale_x = render_settings.RENDER_HEIGHT / self.universe_width
         # рассчитываем позицию региона, где будут появляться события
         self.left_bound_of_events = int(self.render_center_width + (self.max_x-self.universe_center_x)*self.scale_x) + 20
+        # рассчитываем позицию региона в датой
+        self.date_left_bound = int(self.render_center_width + (self.min_x - self.universe_center_x) * self.scale_x)
         # расчёт светимости, берём мощность от яркости, как корень квадратный
         self.min_luminosity = sqrt(self.min_luminosity)
         self.max_luminosity = sqrt(self.max_luminosity)
@@ -382,6 +390,15 @@ class RenderFadeInRepository:
             del self.market[idx]
 
 
+class RenderPilots:
+    def __init__(self):
+        # коллекция пилотов (их идентификаторов) для отслеживания активности в корпорации
+        self.pilot_ids: typing.List[int] = []
+
+    def add_pilot(self, pilot_id: int):
+        self.pilot_ids.append(pilot_id)
+
+
 class RenderUniverse:
     def __init__(
             self,
@@ -390,13 +407,17 @@ class RenderUniverse:
             scale: RenderScale,
             date_font: ImageFont,
             events_font: ImageFont,
-            killmails_font: ImageFont):
+            killmails_font: ImageFont,
+            pilot_img: Image,
+            pilot_contour_img: Image):
         self.canvas = canvas
         self.img_draw = img_draw
         self.scale = scale
         self.date_font = date_font
         self.events_font = events_font
         self.killmails_font = killmails_font
+        self.pilot_img = pilot_img
+        self.pilot_contour_img = pilot_contour_img
 
     @staticmethod
     def create_transparent_ellipse(radius: float, blur_size: int, color: (int, int, int), alpha: int):
@@ -469,8 +490,23 @@ class RenderUniverse:
                 self.highlight_solar_system(m.x, m.z, m.map_color, m.map_radius, m.map_alpha)
 
     def draw_date_caption(self, date: str):
-        __x: float = self.scale.render_center_width + (self.scale.min_x - self.scale.universe_center_x) * self.scale.scale_x
-        self.img_draw.text((__x, 10), date, fill=(140, 140, 140), font=self.date_font)
+        self.img_draw.text((self.scale.date_left_bound, self.scale.date_top_bound), date, fill=(140, 140, 140), font=self.date_font)
+
+    def draw_pilots(self, pilots: RenderPilots):
+        x: int = self.scale.left_bound_of_pilots
+        y: int = self.scale.top_bound_of_pilots
+        width: int = self.pilot_img.width + 4
+        height: int = self.pilot_img.height + 4
+        right_bound: int = self.scale.date_left_bound - width
+        for p in pilots.pilot_ids:
+            if p == 0:  # TODO: main_pilot_id
+                self.canvas.paste(self.pilot_img, (x, y), self.pilot_img)
+            else:  # TODO: pilot_id
+                self.canvas.paste(self.pilot_contour_img, (x, y), self.pilot_contour_img)
+            x += width
+            if x >= right_bound:
+                x = self.scale.left_bound_of_pilots
+                y += height
 
 
 def read_csv_file(
@@ -519,7 +555,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # настраиваем шрифты, которым будем рисовать события даты и т.п.
     events_font = ImageFont.truetype("arial.ttf", render_scale.fontsize)
     date_font = ImageFont.truetype("arial.ttf", render_scale.fontsize)
-
+    # выбор дат для отрисовки сцен
     start_date = datetime.datetime.strptime(date_from, '%Y-%m-%d') if date_from else None
     stop_date = datetime.datetime.strptime(date_to, '%Y-%m-%d') if date_to else None
 
@@ -589,6 +625,20 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # верхние были над нижними
     sorted_solar_systems: typing.List[typing.Any] = list(sde_positions.values())
     sorted_solar_systems.sort(key=lambda ss: ss[1], reverse=False)
+    # конструируем коллекцию пилотов (членов корпораций)
+    pilots: RenderPilots = RenderPilots()
+    # выбор размер пиктограммы пилота (в коллекции находятся размеры от 32px до 22px,
+    # где 32px соответствует высоте шрифта size=46)
+    pilot_img_height: int
+    if date_font.size >= 32:
+        pilot_img_height = 32
+    elif date_font.size <= 22:
+        pilot_img_height = 22
+    else:
+        pilot_img_height = date_font.size - date_font.size % 1
+    # загрузка png изображений для отрисовки пиктограмм на карте
+    pilot_img = Image.open("{}/images/pilot/fill_{}.png".format(cwd, pilot_img_height))
+    pilot_contour_img = Image.open("{}/images/pilot/contour_{}.png".format(cwd, pilot_img_height))
 
     # номер фрейма, который задаёт имя файла и последовательно используется ffmpeg-программой
     image_index: int = 0
@@ -601,6 +651,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         if events_with_dates:
             num_new_events: int = 0
             while render_date_str == events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE]:
+                # TODO: удалить это отсюда (эмуляция добавления пилотов)
+                pilots.add_pilot(int(events_with_dates[0][render_settings.FILE_EVENTS_COL_LEVEL]))
                 e: RenderFadeInEvent = RenderFadeInEvent(
                     events_with_dates[0][render_settings.FILE_EVENTS_COL_TXT],
                     int(events_with_dates[0][render_settings.FILE_EVENTS_COL_LEVEL]))
@@ -677,10 +729,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
 
             # генерируем рисовалку вселенной и корпоративных событий
-            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font)
+            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, pilot_img, pilot_contour_img)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
             for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
+            # наносим на изображение список пилотов
+            renderer.draw_pilots(pilots)
             # наносим дату на изображение
             renderer.draw_date_caption(render_date_str)
             # наносим на изображение надписи и тушим на их на шаг прозрачности
