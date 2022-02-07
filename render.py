@@ -33,11 +33,13 @@ class RenderScale:
         self.top_bound_of_events: int = 0
         self.bottom_bound_of_events: int = 8
         # позиция вывода даты
-        self.date_left_bound: int = 0
-        self.date_top_bound: int = 8
+        self.right_bound_of_date: int = 0
+        self.bottom_bound_of_date: int = 8
         # поправки для региона отображения списка пилотов
+        self.right_bound_of_pilots: int = 0
         self.left_bound_of_pilots: int = 8
         self.top_bound_of_pilots: int = 8
+        self.bottom_bound_of_pilots: typing.Optional[int] = 0  # вычисляется после нанесения списка пилотов на экран
 
     def calc(self, sde_positions):
         self.min_x = None
@@ -73,7 +75,9 @@ class RenderScale:
         # рассчитываем позицию региона, где будут появляться события
         self.left_bound_of_events = int(self.render_center_width + (self.max_x-self.universe_center_x)*self.scale_x) + 20
         # рассчитываем позицию региона в датой
-        self.date_left_bound = int(self.render_center_width + (self.min_x - self.universe_center_x) * self.scale_x)
+        self.right_bound_of_date = self.left_bound_of_events - 20
+        # рассчитываем позицию региона со списком пилотов (сдвигаем границу внутрь карты, т.к. вверху она полупустая)
+        self.right_bound_of_pilots = int(self.render_center_width + (self.min_x-self.universe_center_x)/2 * self.scale_x)
         # расчёт светимости, берём мощность от яркости, как корень квадратный
         self.min_luminosity = sqrt(self.min_luminosity)
         self.max_luminosity = sqrt(self.max_luminosity)
@@ -506,9 +510,9 @@ class RenderUniverse:
         __x: int = 0  # self.scale.left_bound_of_events
         __height: float = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_events
         for (idx, k) in enumerate(killmails):
-            if idx == render_settings.NUMBER_OF_KILLMAILS_IN_LIST:
-                break
             __y: float = __height - idx*__height/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
+            if __y < self.scale.bottom_bound_of_pilots:
+                break
             self.img_draw.text((__x, __y), k.txt, fill=k.list_color, font=self.events_font)
 
     def draw_killmails_map(self, killmails: typing.List[RenderFadeInKillmail]):
@@ -526,12 +530,14 @@ class RenderUniverse:
                 self.highlight_solar_system(m.x, m.z, m.map_color, m.map_radius, m.map_alpha)
 
     def draw_date_caption(self, date: str):
-        self.img_draw.text((self.scale.date_left_bound, self.scale.date_top_bound), date, fill=(140, 140, 140), font=self.date_font)
+        left: int = self.scale.right_bound_of_date - self.date_font.getsize(date)[0]
+        top: int = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_date - self.date_font.size
+        self.img_draw.text((left, top), date, fill=(140, 140, 140), font=self.date_font)
 
     def draw_pilots(self, pilots: RenderPilots, render_date: datetime.datetime, transparency: float):
         width: int = pilots.pilot_1st.width + 4
         height: int = pilots.pilot_1st.height + 4
-        right_bound: int = self.scale.date_left_bound - width
+        right_bound: int = self.scale.right_bound_of_pilots - width
         # ---
         x: int = self.scale.left_bound_of_pilots
         y: int = self.scale.top_bound_of_pilots
@@ -572,6 +578,8 @@ class RenderUniverse:
                 if x >= right_bound:
                     x = self.scale.left_bound_of_pilots
                     y += height
+        # ---
+        self.scale.bottom_bound_of_pilots = y + height
 
 
 def read_csv_file(
@@ -701,13 +709,13 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
 
     # выбор размер пиктограммы пилота (в коллекции находятся размеры от 32px до 22px,
     # где 34px соответствует высоте шрифта size=46)
-    pilot_img_height: int
-    if date_font.size >= 36:
+    pilot_img_height: int = int(date_font.size / 1.4)
+    if pilot_img_height >= 36:
         pilot_img_height = 36
-    elif date_font.size <= 22:
+    elif pilot_img_height <= 22:
         pilot_img_height = 22
-    else:
-        pilot_img_height = date_font.size - date_font.size % 1
+    elif 1 == (pilot_img_height % 1):
+        pilot_img_height -= 1
     # загрузка png изображений для отрисовки пиктограмм на карте
     pilot_img = Image.open("{}/images/pilot/fill_{}.png".format(cwd, pilot_img_height))
     pilot_contour_img = Image.open("{}/images/pilot/contour_{}.png".format(cwd, pilot_img_height))
@@ -803,11 +811,11 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
 
             # генерируем рисовалку вселенной и корпоративных событий
             renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font)
+            # наносим на изображение список пилотов
+            renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
             for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
-            # наносим на изображение список пилотов
-            renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
             # наносим дату на изображение
             renderer.draw_date_caption(render_date_str)
             # наносим на изображение надписи и тушим на их на шаг прозрачности
