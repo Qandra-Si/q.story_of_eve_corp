@@ -860,8 +860,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             canvas.save('{}/{:0>5}.png'.format(out_dir, image_index))
             image_index += 1
             # DEBUG: canvas.show()
-            # DEBUG:
-            return
+            # DEBUG: return
 
         del img_draw
         del canvas
