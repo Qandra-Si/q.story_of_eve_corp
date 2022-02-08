@@ -22,8 +22,8 @@ class RenderScale:
         self.universe_width: float = 0.0
         self.universe_height: float = 0.0
         # настройки рендеринга изображения
-        self.render_center_width: float = render_settings.RENDER_WIDTH / 2.0
-        self.render_half_height: float = render_settings.RENDER_HEIGHT / 2.0  # выполняет роль стороны квадрата, куда будут вписаны SS
+        self.render_center_width: float = 0.0
+        self.render_half_height: float = 0.0
         self.scale_x: float = 0.0
         self.scale_z: float = 0.0
         self.scale_luminosity: float = 0.0
@@ -31,10 +31,10 @@ class RenderScale:
         self.fontsize = 1
         self.left_bound_of_events: int = 0
         self.top_bound_of_events: int = 0
-        self.bottom_bound_of_events: int = 8
+        self.bottom_bound_of_events: int = 0
         # позиция вывода даты
-        self.right_bound_of_date: int = 0
-        self.bottom_bound_of_date: int = 8
+        self.right_bound_of_date: int = 8
+        self.top_bound_of_date: int = 8
         # поправки для региона отображения списка пилотов
         self.right_bound_of_pilots: int = 0
         self.left_bound_of_pilots: int = 8
@@ -72,22 +72,40 @@ class RenderScale:
         # поскольку прямоугольник изображения горизонтально-ориентированный, то по высоте он короче...
         self.scale_z = render_settings.RENDER_HEIGHT / self.universe_height
         self.scale_x = render_settings.RENDER_HEIGHT / self.universe_width
-        # рассчитываем позицию региона, где будут появляться события
-        self.left_bound_of_events = int(self.render_center_width + (self.max_x-self.universe_center_x)*self.scale_x) + 20
-        # рассчитываем позицию региона в датой
-        self.right_bound_of_date = self.left_bound_of_events - 20
+        # рассчитываем положение карты (может быть либо по центру, либо справа)
+        if render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_CENTER:
+            # render_half_height выполняет роль стороны квадрата, куда будут вписаны SS
+            self.render_center_width = render_settings.RENDER_WIDTH / 2.0
+            self.render_half_height = render_settings.RENDER_HEIGHT / 2.0
+            # рассчитываем позицию региона, где будут появляться события
+            self.left_bound_of_events = int(self.render_center_width + (self.max_x - self.universe_center_x) * self.scale_x) + 20
+            self.top_bound_of_events = 8
+            self.bottom_bound_of_events = render_settings.RENDER_HEIGHT - 8
+            # рассчитываем позицию региона в датой
+            self.right_bound_of_date = self.left_bound_of_events - 20
+        elif render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_RIGHT:
+            self.render_center_width = render_settings.RENDER_WIDTH - (self.max_x-self.universe_center_x)*self.scale_x
+            self.render_half_height = render_settings.RENDER_HEIGHT / 2.0
+            # рассчитываем позицию региона, где будут появляться события
+            self.left_bound_of_events = 8
+            self.top_bound_of_events = None  # зависит от высоты блока со списком пилотов
+            self.bottom_bound_of_events = render_settings.RENDER_HEIGHT - 8  # зависит от высоты блока с killmails
+            # рассчитываем позицию региона в датой
+            self.right_bound_of_date = render_settings.RENDER_WIDTH - 8
+        else:
+            raise Exception("Unsupported map layout setup")
         # рассчитываем позицию региона со списком пилотов (сдвигаем границу внутрь карты, т.к. вверху она полупустая)
         self.right_bound_of_pilots = int(self.render_center_width + (self.min_x-self.universe_center_x)/2 * self.scale_x)
         # расчёт светимости, берём мощность от яркости, как корень квадратный
         self.min_luminosity = sqrt(self.min_luminosity)
         self.max_luminosity = sqrt(self.max_luminosity)
-        self.scale_luminosity: float = (render_settings.LUMINOSITY_MAX_BOUND - render_settings.LUMINOSITY_MIN_BOUND) / (self.max_luminosity - self.min_luminosity)
+        self.scale_luminosity = (render_settings.LUMINOSITY_MAX_BOUND - render_settings.LUMINOSITY_MIN_BOUND) / (self.max_luminosity - self.min_luminosity)
 
     def choose_font_size(self):
         self.fontsize: int = 10  # начальный размер шрифта
         font = ImageFont.truetype("arial.ttf", self.fontsize)
         # итерируемся по размерам шрифтов так, чтобы в высоту изображения влезло N строк
-        height: int = render_settings.RENDER_HEIGHT - self.bottom_bound_of_events + self.top_bound_of_events
+        height: int = render_settings.RENDER_HEIGHT - 8 - 8
         while font.getsize("Qandra Si")[1] < (height / render_settings.NUMBER_OF_EVENTS):
             self.fontsize += 1
             font = ImageFont.truetype("arial.ttf", self.fontsize)
@@ -501,14 +519,20 @@ class RenderUniverse:
 
     def draw_events_list(self, events: typing.List[RenderFadeInEvent]):
         __x: int = self.scale.left_bound_of_events
-        __height: float = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_events
-        for (idx, e) in enumerate(events):
-            __y: float = __height - idx*__height/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
-            self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
+        if render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_CENTER:
+            __y: float = self.scale.bottom_bound_of_events - self.scale.fontsize
+            for e in events:
+                self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
+                __y -= self.scale.fontsize
+        elif render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_RIGHT:
+            __y: float = self.scale.top_bound_of_events
+            for e in events:
+                self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
+                __y += self.scale.fontsize
 
     def draw_killmails_list(self, killmails: typing.List[RenderFadeInKillmail]):
         __x: int = 0  # self.scale.left_bound_of_events
-        __height: float = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_events
+        __height: float = render_settings.RENDER_HEIGHT - 8
         for (idx, k) in enumerate(killmails):
             __y: float = __height - idx*__height/render_settings.NUMBER_OF_EVENTS - self.scale.fontsize
             if __y < self.scale.bottom_bound_of_pilots:
@@ -531,7 +555,8 @@ class RenderUniverse:
 
     def draw_date_caption(self, date: str):
         left: int = self.scale.right_bound_of_date - self.date_font.getsize(date)[0]
-        top: int = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_date - self.date_font.size
+        # внизу: top: int = render_settings.RENDER_HEIGHT - self.scale.bottom_bound_of_date - self.scale.fontsize
+        top: int = self.scale.top_bound_of_date  # вверху
         self.img_draw.text((left, top), date, fill=(140, 140, 140), font=self.date_font)
 
     def draw_pilots(self, pilots: RenderPilots, render_date: datetime.datetime, transparency: float):
@@ -580,6 +605,7 @@ class RenderUniverse:
                     y += height
         # ---
         self.scale.bottom_bound_of_pilots = y + height
+        self.scale.top_bound_of_events = self.scale.bottom_bound_of_pilots + 8
 
 
 def read_csv_file(
@@ -709,12 +735,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
 
     # выбор размер пиктограммы пилота (в коллекции находятся размеры от 32px до 22px,
     # где 34px соответствует высоте шрифта size=46)
-    pilot_img_height: int = int(date_font.size / 1.4)
+    pilot_img_height: int = int(render_scale.fontsize / 1.4)
     if pilot_img_height >= 36:
         pilot_img_height = 36
     elif pilot_img_height <= 22:
         pilot_img_height = 22
-    elif 1 == (pilot_img_height % 1):
+    elif 1 == (pilot_img_height % 2):
         pilot_img_height -= 1
     # загрузка png изображений для отрисовки пиктограмм на карте
     pilot_img = Image.open("{}/images/pilot/fill_{}.png".format(cwd, pilot_img_height))
@@ -834,7 +860,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             canvas.save('{}/{:0>5}.png'.format(out_dir, image_index))
             image_index += 1
             # DEBUG: canvas.show()
-            # DEBUG: return
+            # DEBUG:
+            return
 
         del img_draw
         del canvas
