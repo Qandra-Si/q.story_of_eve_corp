@@ -963,7 +963,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     del sde_regions
     # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
     # изменения изображений на карте
-    if start_date > pochven_date:
+    if render_date > pochven_date:
         regions_activity.apply_patch(sde_pochven)
         if verbose:
             print('Pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
