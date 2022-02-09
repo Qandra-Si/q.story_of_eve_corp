@@ -984,7 +984,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     if pilot_img_height >= 36:
         pilot_img_height = 36
     elif pilot_img_height <= 22:
-        pilot_img_height = 22
+        pilot_img_height = 14
     elif 1 == (pilot_img_height % 2):
         pilot_img_height -= 1
     # загрузка png изображений для отрисовки пиктограмм на карте
