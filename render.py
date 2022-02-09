@@ -655,6 +655,7 @@ class RenderRegionsActivity:
     def __init__(self, regions: typing.Dict[str, typing.Any]):
         self.regions: typing.Dict[str, typing.Any] = regions
         self.using: typing.Dict[int, datetime.date] = {}
+        self.magnifier: typing.List[typing.Tuple[datetime.date, typing.Any]] = []
 
     def draw_contours_of_regions_debug_only(self, img_draw: Image, scale: RenderScale, region_font: ImageFont):
         for region_id in self.using.keys():
@@ -673,6 +674,19 @@ class RenderRegionsActivity:
             zcent: float = scale.render_half_height - (contour_center['z'] - scale.universe_center_z) * scale.scale_z
             sz: (int, int) = region_font.getsize(r['name'])
             img_draw.text((xcent - sz[0]/2, zcent - sz[1]/2), r['name'], fill='#666', font=region_font)
+
+    def draw_contours_of_magnifier_debug_only(self, img_draw: Image, scale: RenderScale, render_date: datetime.datetime):
+        # поиск ранее добавленной даты в magnifier-список
+        mdt = next((m for m in self.magnifier if m[0] == render_date), None)
+        if mdt is None:
+            return
+        contour_min: (float, float, float) = mdt[1]['min']
+        contour_max: (float, float, float) = mdt[1]['max']
+        xmin: float = scale.render_center_width + (contour_min['x'] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+        zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+        xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+        zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+        img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#CD7F32', width=2)
 
     def mark_last_time_usage(self, solar_system_id: int, curr_date: datetime.date) -> typing.Optional[int]:
         res: typing.Optional[int] = None
@@ -701,6 +715,75 @@ class RenderRegionsActivity:
             else:
                 r.update(patched)
 
+    def build_magnifying_regions_by_dates(
+            self,
+            sde_regions,
+            sde_pochven, pochven_date: datetime.datetime,
+            killmails_with_dates: typing.List[typing.Any],
+            industry_with_dates: typing.List[typing.Any],
+            market_with_dates: typing.List[typing.Any]):
+        # временные переменные
+        last_date = None
+        last_solar_system_id = None
+        some_activity_before_patch: bool = False
+        some_activity_after_patch: bool = False
+        # строим список дат с которыми будут связаны min/max координаты видимых областей
+        self.magnifier.clear()
+        # перебираем загруженные наборы данных
+        for items in (killmails_with_dates, industry_with_dates, market_with_dates):
+            # пользуемся тем, что в разных сипсках содержатся объекты с одинаковыми атрибутами date и system
+            for item in items:
+                # стараемся не повторять одни и те же действия, если не поменялись индексы для поиска
+                if last_date == item.date and last_solar_system_id == item.system:
+                    continue
+                if item.date < pochven_date:
+                    some_activity_before_patch = True
+                else:
+                    some_activity_after_patch = True
+                # поиск ранее добавленной даты в magnifier-список
+                mdt = next((m for m in self.magnifier if m[0] == item.date), None)
+                # проверка, что мы знаем идентификатор солнечной системы
+                if item.system is None:
+                    continue
+                # проверка, что мы знает регион в котором находится эта солнечная система
+                region = None
+                # сначала ищев в пропатченых данных (регион Pochven и изменённые им другие регионы)
+                if item.date >= pochven_date:
+                    for r in sde_pochven.values():
+                        if item.system in r['systems']:
+                            region = r
+                            break
+                # если солнечная система в пропатченных данных не была найдена, то ищем в базовом наборе
+                # исходим из того, что данные регионов патчем только МЕНЯЮТСЯ, но не удаляются и не добавляются)
+                if region is None:
+                    for r in sde_regions.values():
+                        if item.system in r['systems']:
+                            region = r
+                            break
+                if region is None:
+                    continue
+                # добавляем (или обновляем) координаты в magnifier-списке
+                if mdt is None:
+                    self.magnifier.append((item.date, {'min': region['min'], 'max': region['max']}))
+                else:
+                    mdt[1]['min'] = eve_sde_tools.get_min_coordinates(mdt[1]['min'], region['min'])
+                    mdt[1]['max'] = eve_sde_tools.get_max_coordinates(mdt[1]['max'], region['max'])
+                # запоминаем идентификаторы, по которым вёлся поиск, чтобы не гонять его вхолостую
+                last_date = item.date
+                last_solar_system_id = item.system
+        # по умолчанию добавляем в magnifier-набор данных координаты Pochven на дату релиза
+        if some_activity_before_patch and some_activity_after_patch:
+            mdt = next((m for m in self.magnifier if m[0] == pochven_date), None)
+            region = sde_pochven[str(10000070)]
+            # добавляем (или обновляем) координаты в magnifier-списке
+            if mdt is None:
+                self.magnifier.append((pochven_date, {'min': region['min'], 'max': region['max']}))
+            else:
+                mdt[1]['min'] = eve_sde_tools.get_min_coordinates(mdt[1]['min'], region['min'])
+                mdt[1]['max'] = eve_sde_tools.get_max_coordinates(mdt[1]['max'], region['max'])
+        # сортируем полученный magnifier-список в порядке возрастания дат
+        self.magnifier.sort(key=lambda mdt: mdt[0])
+
 
 class ImportedData:
     def __init__(self):
@@ -720,15 +803,16 @@ def read_csv_file(
         for row in reader:
             dt = datetime.datetime.strptime(row[file_date_col], '%Y-%m-%d')
             if preload_early_dates:
-                if stop_date and (dt <= stop_date) or not stop_date:
-                    pass
-                else:
+                if stop_date and stop_date < dt:
                     continue
             else:
-                if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
-                   stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                    pass
-                else:
+                if start_date:
+                    if stop_date:
+                        if dt < start_date or stop_date < dt:
+                            continue
+                    elif dt < start_date:
+                        continue
+                elif stop_date and stop_date < dt:
                     continue
             # добавление объекта в список в том виде в котором задан формат файла
             data: ImportedData = ImportedData()
@@ -855,10 +939,26 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         for dt in dtf:
             if stop_date is None or stop_date < dt:
                 stop_date = dt
+    # вывод отладочной информации, если требуется
+    if verbose:
+        print('Loaded {} events, {} killmails, {} jobs, {} markets'.format(
+            len(events_with_dates),
+            len(killmails_with_dates),
+            len(industry_with_dates),
+            len(market_with_dates)
+        ))
+        print('Date from {} and date to {} choosen'.format(render_date, stop_date))
 
     # подготовка регионов к отрисовке
     pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
     regions_activity: RenderRegionsActivity = RenderRegionsActivity(sde_regions)
+    # расчёт движения карты, т.н. "режим лупы" (строится ДО накладывания pochven-исправления)
+    regions_activity.build_magnifying_regions_by_dates(
+        sde_regions,
+        sde_pochven, pochven_date,
+        killmails_with_dates,
+        industry_with_dates,
+        market_with_dates)
     # уничтожаем исходную информацию о регионах, пользоваться нельзя - она будет patch-иться
     del sde_regions
     # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
@@ -868,15 +968,6 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         if verbose:
             print('Pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
         del sde_pochven
-
-    if verbose:
-        print('Loaded {} events, {} killmails, {} jobs, {} markets'.format(
-            len(events_with_dates),
-            len(killmails_with_dates),
-            len(industry_with_dates),
-            len(market_with_dates)
-        ))
-        print('Date from {} and date to {} choosen'.format(render_date, stop_date))
 
     # набор данных, которые подвергаются мерцанию и переменные для статистики
     render_fade_in: RenderFadeInRepository = RenderFadeInRepository()
@@ -1018,7 +1109,9 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             img_draw = ImageDraw.Draw(canvas, 'RGB')
             # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
             # наносим на изображение контуры регионов (отладочный режим)
-            # DEBUG: regions_activity.draw_contours_of_regions_debug_only(img_draw, scale, region_font)
+            # DEBUG: regions_activity.draw_contours_of_regions_debug_only(img_draw, render_scale, region_font)
+            # DEBUG:
+            regions_activity.draw_contours_of_magnifier_debug_only(img_draw, render_scale, render_date)
 
             # генерируем рисовалку вселенной и корпоративных событий
             renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, region_font)

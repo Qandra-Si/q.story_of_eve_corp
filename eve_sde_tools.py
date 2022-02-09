@@ -58,6 +58,20 @@ def write_converted(ws_dir: str, name: str, data):
         f.close()
 
 
+def get_min_coordinates(old, new):
+    x: float = min(new['x'], old['x'])
+    y: float = min(new['y'], old['y'])
+    z: float = min(new['z'], old['z'])
+    return {'x': x, 'y': y, 'z': z}
+
+
+def get_max_coordinates(old, new):
+    x: float = max(new['x'], old['x'])
+    y: float = max(new['y'], old['y'])
+    z: float = max(new['z'], old['z'])
+    return {'x': x, 'y': y, 'z': z}
+
+
 def main():
     cwd: str = os.path.dirname(os.path.realpath(__file__))
     sde_universe_path = '{cwd}/sde_cache/fsd/universe/eve'.format(cwd=cwd)
@@ -101,18 +115,8 @@ def main():
                     del solar_system
                 # ---
                 region['systems'].append(solar_system_id)
-                if region['min']['x'] > position['x']:
-                    region['min']['x'] = position['x']
-                if region['min']['y'] > position['y']:
-                    region['min']['y'] = position['y']
-                if region['min']['z'] > position['z']:
-                    region['min']['z'] = position['z']
-                if region['max']['x'] < position['x']:
-                    region['max']['x'] = position['x']
-                if region['max']['y'] < position['y']:
-                    region['max']['y'] = position['y']
-                if region['max']['z'] < position['z']:
-                    region['max']['z'] = position['z']
+                region['min'] = get_min_coordinates(region['min'], position)
+                region['max'] = get_max_coordinates(region['max'], position)
     if sde_inv_positions is not None:
         del sde_inv_positions
 
