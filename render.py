@@ -83,6 +83,8 @@ class RenderScale:
             self.bottom_bound_of_events = render_settings.RENDER_HEIGHT - 8
             # рассчитываем позицию региона в датой
             self.right_bound_of_date = self.left_bound_of_events - 20
+            # считаем позицию региона со списком пилотов (сдвигаем границу внутрь карты, т.к. вверху она полупустая)
+            self.right_bound_of_pilots = int( self.render_center_width + (self.min_x - self.universe_center_x) / 3 * self.scale_x)
         elif render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_RIGHT:
             self.render_center_width = render_settings.RENDER_WIDTH - (self.max_x-self.universe_center_x)*self.scale_x
             self.render_half_height = render_settings.RENDER_HEIGHT / 2.0
@@ -92,10 +94,10 @@ class RenderScale:
             self.bottom_bound_of_events = render_settings.RENDER_HEIGHT - 8  # зависит от высоты блока с killmails
             # рассчитываем позицию региона в датой
             self.right_bound_of_date = render_settings.RENDER_WIDTH - 8
+            # считаем позицию региона со списком пилотов (сдвигаем границу внутрь карты, т.к. вверху она полупустая)
+            self.right_bound_of_pilots = int( self.render_center_width + (self.min_x - self.universe_center_x) * self.scale_x)
         else:
             raise Exception("Unsupported map layout setup")
-        # рассчитываем позицию региона со списком пилотов (сдвигаем границу внутрь карты, т.к. вверху она полупустая)
-        self.right_bound_of_pilots = int(self.render_center_width + (self.min_x-self.universe_center_x)/2 * self.scale_x)
         # расчёт светимости, берём мощность от яркости, как корень квадратный
         self.min_luminosity = sqrt(self.min_luminosity)
         self.max_luminosity = sqrt(self.max_luminosity)
@@ -354,9 +356,9 @@ class RenderFadeInMarket:
 
 
 class RenderFadeInRegion:
-    def __init__(self, region_id: int):
+    def __init__(self, region_id: int, color: (int, int, int) = None):
         self.region_id: int = region_id
-        self.__color: (int, int, int) = render_settings.REGION_SETUP[0]
+        self.__color: (int, int, int) = render_settings.REGION_SETUP[0] if not color else color
         self.opacity: float = 1.0
         self.frame_num: int = 1
         self.lifetime_frames: int = render_settings.REGION_SETUP[1] * render_settings.RENDER_FRAME_RATE
@@ -704,6 +706,14 @@ class RenderRegionsActivity:
         for region_id in regions_to_delete:
             del self.using[region_id]
 
+    def apply_patch(self, patch: typing.Dict[str, typing.Any]):
+        for (region_id, patched) in patch.items():
+            r = self.regions.get(region_id)
+            if r is None:
+                self.regions[region_id] = patched
+            else:
+                r.update(patched)
+
 
 def read_csv_file(
         fname: str,
@@ -777,10 +787,6 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     start_date = datetime.datetime.strptime(date_from, '%Y-%m-%d') if date_from else None
     stop_date = datetime.datetime.strptime(date_to, '%Y-%m-%d') if date_to else None
 
-    # подготовка регионов к отрисовке
-    pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
-    regions_activity: RenderRegionsActivity = RenderRegionsActivity(sde_regions)
-
     # читаем данные из файлов
     events_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_EVENTS_NAME), render_settings.FILE_EVENTS_COL_DATE,
@@ -816,7 +822,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             dtd = datetime.datetime.strptime(dt, '%Y-%m-%d')
             if render_date is None or render_date > dtd:
                 render_date = dtd
-
+    # ---
     if not stop_date:
         dtf: typing.List[str] = []
         if events_with_dates:
@@ -832,6 +838,19 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             dtd = datetime.datetime.strptime(dt, '%Y-%m-%d')
             if stop_date is None or stop_date < dtd:
                 stop_date = dtd
+
+    # подготовка регионов к отрисовке
+    pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
+    regions_activity: RenderRegionsActivity = RenderRegionsActivity(sde_regions)
+    # уничтожаем исходную информацию о регионах, пользоваться нельзя - она будет patch-иться
+    del sde_regions
+    # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
+    # изменения изображений на карте
+    if start_date > pochven_date:
+        regions_activity.apply_patch(sde_pochven)
+        if verbose:
+            print('Pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
+        del sde_pochven
 
     if verbose:
         print('Loaded {} events, {} killmails, {} jobs, {} markets'.format(
@@ -853,7 +872,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
 
     # выбор размер пиктограммы пилота (в коллекции находятся размеры от 32px до 22px,
     # где 34px соответствует высоте шрифта size=46)
-    pilot_img_height: int = int(render_scale.fontsize / 1.4)
+    pilot_img_height: int = int(render_scale.fontsize / 1.3)
     if pilot_img_height >= 36:
         pilot_img_height = 36
     elif pilot_img_height <= 22:
@@ -877,6 +896,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             print('==', render_date_str)
         # добавляем информацию о появлении нового региона Pochven в EVE Online
         if render_date == pochven_date:
+            regions_activity.apply_patch(sde_pochven)  # noqa
+            if verbose:
+                print(' pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
+            del sde_pochven
+            # ---
+            render_fade_in.add_region(RenderFadeInRegion(10000070, color=render_settings.EVENTS_SETUP[5][0]))  # region_id=Pochven
             render_fade_in.add_event(RenderFadeInEvent("Pochven is the region of space introduces at October 13 2020", 5))
             num_new_events += 1
         # добавляем события "сегодняшнего дня" в список отрисовки
@@ -981,7 +1006,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # наносим на изображение список пилотов
             renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
             # рисуем названия регионов на карте
-            renderer.draw_regions(sde_regions, render_fade_in.regions)
+            renderer.draw_regions(regions_activity.regions, render_fade_in.regions)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
             for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
@@ -1003,7 +1028,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             canvas.save('{}/{:0>5}.png'.format(out_dir, image_index))
             image_index += 1
             # DEBUG: canvas.show()
-            # DEBUG: return
+            # DEBUG:
+            return
 
         del img_draw
         del canvas
