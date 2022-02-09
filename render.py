@@ -101,18 +101,23 @@ class RenderScale:
         self.max_luminosity = sqrt(self.max_luminosity)
         self.scale_luminosity = (render_settings.LUMINOSITY_MAX_BOUND - render_settings.LUMINOSITY_MIN_BOUND) / (self.max_luminosity - self.min_luminosity)
 
-    def choose_font_size(self):
-        self.fontsize: int = 10  # начальный размер шрифта
-        font = ImageFont.truetype("arial.ttf", self.fontsize)
+    @staticmethod
+    def calc_font_size(lines_count: int) -> int:
+        fontsize: int = 10  # начальный размер шрифта
+        font = ImageFont.truetype("arial.ttf", fontsize)
         # итерируемся по размерам шрифтов так, чтобы в высоту изображения влезло N строк
         height: int = render_settings.RENDER_HEIGHT - 8 - 8
-        while font.getsize("Qandra Si")[1] < (height / render_settings.NUMBER_OF_EVENTS):
-            self.fontsize += 1
-            font = ImageFont.truetype("arial.ttf", self.fontsize)
+        while font.getsize("Qandra Si")[1] < (height / lines_count):
+            fontsize += 1
+            font = ImageFont.truetype("arial.ttf", fontsize)
         del font
         # опционально уменьшаем размер шрифта, чтобы была верхние надписи не уходили за экран (впрочем они там и так
         # затухают, т.ч. это действительно необязательно)
         # self.fontsize -= 1
+        return fontsize
+
+    def choose_font_size(self):
+        self.fontsize =self.calc_font_size(render_settings.NUMBER_OF_EVENTS)
 
 
 class RenderFadeInEvent:
@@ -348,12 +353,37 @@ class RenderFadeInMarket:
         return render_settings.MARKET_MIN_FATNESS + market_radius
 
 
+class RenderFadeInRegion:
+    def __init__(self, region_id: int):
+        self.region_id: int = region_id
+        self.__color: (int, int, int) = render_settings.REGION_SETUP[0]
+        self.opacity: float = 1.0
+        self.frame_num: int = 1
+        self.lifetime_frames: int = render_settings.REGION_SETUP[1] * render_settings.RENDER_FRAME_RATE
+        self.transparency_frame: float = 1.0 / self.lifetime_frames  # мера прозрачности, добавляемая каждый фрейм
+
+    def pass_frame(self):
+        self.frame_num += 1
+        self.opacity -= self.transparency_frame
+        if self.opacity < 0.0:
+            self.opacity = 0.0
+
+    @property
+    def color(self) -> (int, int, int):
+        return int(self.__color[0] * self.opacity), int(self.__color[1] * self.opacity), int(self.__color[2] * self.opacity)
+
+    @property
+    def disappeared(self) -> bool:
+        return self.frame_num > self.lifetime_frames
+
+
 class RenderFadeInRepository:
     def __init__(self):
         self.events: typing.List[RenderFadeInEvent] = []
         self.__killmails: typing.List[RenderFadeInKillmail] = []
         self.industry: typing.List[RenderFadeInIndustry] = []
         self.market: typing.List[RenderFadeInMarket] = []
+        self.regions: typing.List[RenderFadeInRegion] = []
 
     def add_event(self, item: RenderFadeInEvent):
         if len(self.events) == render_settings.NUMBER_OF_EVENTS:
@@ -368,6 +398,9 @@ class RenderFadeInRepository:
 
     def add_market(self, item: RenderFadeInMarket):
         self.market.append(item)
+
+    def add_region(self, item: RenderFadeInRegion):
+        self.regions.append(item)
 
     @property
     def killmails_in_list(self):
@@ -410,6 +443,14 @@ class RenderFadeInRepository:
                 list_of_disappeared_market.insert(0, idx)
         for idx in list_of_disappeared_market:
             del self.market[idx]
+        # уменьшаем яркость region-надписей и удаляем ставшие практически прозрачными
+        list_of_disappeared_regions: typing.List[int] = []
+        for (idx, r) in enumerate(self.regions):
+            r.pass_frame()
+            if r.disappeared:
+                list_of_disappeared_regions.insert(0, idx)
+        for idx in list_of_disappeared_regions:
+            del self.regions[idx]
 
 
 class RenderPilots:
@@ -469,13 +510,15 @@ class RenderUniverse:
             scale: RenderScale,
             date_font: ImageFont,
             events_font: ImageFont,
-            killmails_font: ImageFont):
-        self.canvas = canvas
-        self.img_draw = img_draw
-        self.scale = scale
-        self.date_font = date_font
-        self.events_font = events_font
-        self.killmails_font = killmails_font
+            killmails_font: ImageFont,
+            region_font: ImageFont):
+        self.canvas: Image = canvas
+        self.img_draw: ImageDraw = img_draw
+        self.scale: RenderScale = scale
+        self.date_font: ImageFont = date_font
+        self.events_font: ImageFont = events_font
+        self.killmails_font: ImageFont = killmails_font
+        self.region_font: ImageFont = region_font
 
     @staticmethod
     def create_transparent_ellipse(radius: float, blur_size: int, color: (int, int, int), alpha: int):
@@ -607,6 +650,60 @@ class RenderUniverse:
         self.scale.bottom_bound_of_pilots = y + height
         self.scale.top_bound_of_events = self.scale.bottom_bound_of_pilots + 8
 
+    def draw_regions(self, sde_regions: typing.Dict[str, typing.Any], regions: typing.List[RenderFadeInRegion]):
+        for r in regions:
+            sr = sde_regions.get(str(r.region_id))
+            if sr is None:
+                continue
+            center: (float, float, float) = sr['center']
+            x: float = self.scale.render_center_width + (center['x'] - self.scale.universe_center_x) * self.scale.scale_x
+            y: float = self.scale.render_half_height - (center['z'] - self.scale.universe_center_z) * self.scale.scale_z
+            sz: (int, int) = self.region_font.getsize(sr['name'])
+            self.img_draw.text((x - sz[0]/2, y - sz[1]/2), sr['name'], fill=r.color, font=self.region_font)
+
+
+class RenderRegionsActivity:
+    def __init__(self, regions: typing.Dict[str, typing.Any]):
+        self.regions: typing.Dict[str, typing.Any] = regions
+        self.using: typing.Dict[int, datetime.date] = {}
+
+    def draw_contours_of_regions_debug_only(self, img_draw: Image, scale: RenderScale, region_font: ImageFont):
+        for region_id in self.using.keys():
+            r = self.regions.get(str(region_id))
+            """ контур """
+            contour_min: (float, float, float) = r['min']
+            contour_max: (float, float, float) = r['max']
+            xmin: float = scale.render_center_width + (contour_min['x'] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+            zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+            xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+            zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+            img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#333333', width=2)
+            """ """
+            contour_center: (float, float, float) = r['center']
+            xcent: float = scale.render_center_width + (contour_center['x'] - scale.universe_center_x) * scale.scale_x
+            zcent: float = scale.render_half_height - (contour_center['z'] - scale.universe_center_z) * scale.scale_z
+            sz: (int, int) = region_font.getsize(r['name'])
+            img_draw.text((xcent - sz[0]/2, zcent - sz[1]/2), r['name'], fill='#666', font=region_font)
+
+    def mark_last_time_usage(self, solar_system_id: int, curr_date: datetime.date) -> typing.Optional[int]:
+        res: typing.Optional[int] = None
+        for r in self.regions.values():
+            if solar_system_id in r['systems']:
+                region_id: int = r['id']
+                if self.using.get(region_id) is None:
+                    res = region_id
+                self.using[region_id] = curr_date
+                break
+        return res
+
+    def pass_to_date(self, curr_date: datetime.date):
+        regions_to_delete: typing.Set[int] = set()
+        for (region_id, dt) in self.using.items():
+            if (dt + datetime.timedelta(days=render_settings.DURATION_REGION)) < curr_date:
+                regions_to_delete.add(region_id)
+        for region_id in regions_to_delete:
+            del self.using[region_id]
+
 
 def read_csv_file(
         fname: str,
@@ -637,6 +734,22 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     sde_positions = eve_sde_tools.read_converted(cwd, "fsdUniversePositions")
     if verbose:
         print("Read {} solar systems positions in Universe".format(len(sde_positions)))
+    sde_regions = eve_sde_tools.read_converted(cwd, "fsdRegions")
+    sde_pochven = eve_sde_tools.read_converted(cwd, "fsdRegions_2020oct13_patch")
+    if verbose:
+        print("Read {} regions and their positions plus {} patch for dates after 2020 October 13".format(len(sde_regions), len(sde_pochven)))
+
+    # переконвертируем строки в числа и список делаем set-ом
+    for r in sde_regions.values():
+        systems_as_int: typing.Set[int] = set()
+        for s in r['systems']:
+            systems_as_int.add(int(s))
+        r['systems'] = systems_as_int
+    for r in sde_pochven.values():
+        systems_as_int: typing.Set[int] = set()
+        for s in r['systems']:
+            systems_as_int.add(int(s))
+        r['systems'] = systems_as_int
 
     # рассчитываем пропорции и региона на изображении, которые будут использоваться для отрисовки разной информации
     render_scale = RenderScale()
@@ -658,10 +771,15 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             render_settings.LUMINOSITY_MIN_BOUND+(render_scale.max_luminosity-render_scale.min_luminosity)*render_scale.scale_luminosity))
     # настраиваем шрифты, которым будем рисовать события даты и т.п.
     events_font = ImageFont.truetype("arial.ttf", render_scale.fontsize)
-    date_font = ImageFont.truetype("arial.ttf", render_scale.fontsize)
+    date_font = ImageFont.truetype("arial.ttf", render_scale.calc_font_size(50))
+    region_font = ImageFont.truetype("arial.ttf", render_scale.calc_font_size(55))
     # выбор дат для отрисовки сцен
     start_date = datetime.datetime.strptime(date_from, '%Y-%m-%d') if date_from else None
     stop_date = datetime.datetime.strptime(date_to, '%Y-%m-%d') if date_to else None
+
+    # подготовка регионов к отрисовке
+    pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
+    regions_activity: RenderRegionsActivity = RenderRegionsActivity(sde_regions)
 
     # читаем данные из файлов
     events_with_dates = read_csv_file(
@@ -752,13 +870,17 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # номер фрейма, который задаёт имя файла и последовательно используется ffmpeg-программой
     image_index: int = 0
     while True:
+        num_new_events: int = 0
         # получаем дату "сегодняшнего дня"
         render_date_str: str = datetime.datetime.strftime(render_date, '%Y-%m-%d')
         if verbose:
             print('==', render_date_str)
+        # добавляем информацию о появлении нового региона Pochven в EVE Online
+        if render_date == pochven_date:
+            render_fade_in.add_event(RenderFadeInEvent("Pochven is the region of space introduces at October 13 2020", 5))
+            num_new_events += 1
         # добавляем события "сегодняшнего дня" в список отрисовки
         if events_with_dates:
-            num_new_events: int = 0
             while render_date_str == events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE]:
                 e: RenderFadeInEvent = RenderFadeInEvent(
                     events_with_dates[0][render_settings.FILE_EVENTS_COL_TXT],
@@ -768,11 +890,14 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 del events_with_dates[0]
                 if not events_with_dates:
                     break
-            if verbose and num_new_events:
-                print(' {} new events'.format(num_new_events))
         if killmails_with_dates:
             num_new_killmails: int = 0
             while render_date_str == killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_DATE]:
+                solar_system_id: int = int(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SYSTEM])
+                new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
+                if new_region_id is not None:
+                    render_fade_in.add_region(RenderFadeInRegion(new_region_id))
+                # ---
                 p = sde_positions.get(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SYSTEM])
                 k: RenderFadeInKillmail = RenderFadeInKillmail(
                     killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_VICTIM] == '1',
@@ -790,7 +915,14 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         if industry_with_dates:
             num_new_industry_jobs: int = 0
             while render_date_str == industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_DATE]:
-                p = sde_positions.get(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_SYSTEM])
+                solar_system_str: str = industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_SYSTEM]
+                p = None
+                if solar_system_str:
+                    solar_system_id: int = int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_SYSTEM])
+                    new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
+                    if new_region_id is not None:
+                        render_fade_in.add_region(RenderFadeInRegion(new_region_id))
+                    p = sde_positions.get(solar_system_str)
                 k: RenderFadeInIndustry = RenderFadeInIndustry(
                     int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_JOBS]),
                     p[0] if p is not None else None, p[2] if p is not None else None)
@@ -803,14 +935,20 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 print(' {} new industry stat'.format(num_new_industry_jobs))
             if num_new_industry_jobs > maximum_num_of_industry_jobs:
                 maximum_num_of_industry_jobs = num_new_industry_jobs
-                e: RenderFadeInEvent = RenderFadeInEvent(
-                    'Industry achievement , {} jobs'.format(maximum_num_of_industry_jobs),
-                    3)
+                e: RenderFadeInEvent = RenderFadeInEvent('Industry achievement , {} jobs'.format(maximum_num_of_industry_jobs), 3)
                 render_fade_in.add_event(e)
+                num_new_events += 1
         if market_with_dates:
             sum_isk_per_day: int = 0
             while render_date_str == market_with_dates[0][render_settings.FILE_MARKET_COL_DATE]:
-                p = sde_positions.get(market_with_dates[0][render_settings.FILE_MARKET_COL_SYSTEM])
+                solar_system_str: str = market_with_dates[0][render_settings.FILE_MARKET_COL_SYSTEM]
+                p = None
+                if solar_system_str:
+                    solar_system_id: int = int(market_with_dates[0][render_settings.FILE_MARKET_COL_SYSTEM])
+                    new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
+                    if new_region_id is not None:
+                        render_fade_in.add_region(RenderFadeInRegion(new_region_id))
+                    p = sde_positions.get(solar_system_str)
                 k: RenderFadeInMarket = RenderFadeInMarket(
                     float(market_with_dates[0][render_settings.FILE_MARKET_COL_ISK]),
                     p[0] if p is not None else None, p[2] if p is not None else None)
@@ -823,10 +961,11 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 print(' {} ISK in market operations'.format(sum_isk_per_day))
             if sum_isk_per_day > maximum_isk_per_day:
                 maximum_isk_per_day = sum_isk_per_day
-                e: RenderFadeInEvent = RenderFadeInEvent(
-                    'Market achievement, {:,d} ISK'.format(maximum_isk_per_day),
-                    4)
+                e: RenderFadeInEvent = RenderFadeInEvent('Market achievement, {:,d} ISK'.format(maximum_isk_per_day), 4)
                 render_fade_in.add_event(e)
+                num_new_events += 1
+        if verbose and num_new_events:
+            print(' {} new events'.format(num_new_events))
 
         # ---
         for frame_idx in range(render_settings.DURATION_DATE):
@@ -834,11 +973,15 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             canvas = Image.new('RGB', (render_settings.RENDER_WIDTH, render_settings.RENDER_HEIGHT), 'black')
             img_draw = ImageDraw.Draw(canvas, 'RGB')
             # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
+            # наносим на изображение контуры регионов (отладочный режим)
+            # DEBUG: regions_activity.draw_contours_of_regions_debug_only(img_draw, scale, region_font)
 
             # генерируем рисовалку вселенной и корпоративных событий
-            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font)
+            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, region_font)
             # наносим на изображение список пилотов
             renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
+            # рисуем названия регионов на карте
+            renderer.draw_regions(sde_regions, render_fade_in.regions)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
             for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
@@ -867,6 +1010,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         # ---
         if render_date == stop_date:
             break
+        regions_activity.pass_to_date(render_date)
         render_date += datetime.timedelta(days=1)
 
     del sde_positions

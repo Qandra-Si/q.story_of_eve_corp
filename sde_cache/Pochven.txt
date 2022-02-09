@@ -1,0 +1,42 @@
+﻿https://wiki.eveuniversity.org/Pochven
+
+KraiPerun
+ Ignebaener  30005006  Essence
+ Kino        30001373  Lonetrek
+ Komo        30031407  TheCitadel
+ Konola      30002738  TheCitadel
+ Krirald     30002080  Metropolis
+ Nalvula     30001446  Lonetrek
+ Otanuomi    30000193  TheForge
+ Otela       30000158  TheForge
+ Sakenta     30011392  TheForge
+
+KraiSvarog
+ Ahtila      30045329  BlackRise
+ Harva       30002226  Domain
+ Kuharah     30000022  Derelik
+ Nani        30001414  Lonetrek
+ Niarja      30003505  Domain
+ Raravoss    30003496  Domain
+ Skarkon     30002412  MoldenHeath
+ Tunudan     30002771  TheCitadel
+ Urhinichi   30041392  TheCitadel
+
+KraiVeles
+ Ala         30002653  SinqLaison
+ Angymonne   30003047  Everyshore
+ Archee      30002703  SinqLaison
+ Arvasaras   30001382  Lonetrek
+ Ichoriya    30045330  BlackRise
+ Kaunokka    30002798  TheCitadel
+ Senda       30021392  TheForge
+ Vale        30005030  Essence
+ Wirashoda   30000207  TheForge
+
+30011392 (before)                     (after)
+         x: -1.4850623482693107e+17   x: -1.48506234827e+17
+         y: 1.014076619414007e+17     y: 1.01407661941e+17
+         z: 1.286071924290557e+17     z: 1.28607192429e+17
+
+
+
