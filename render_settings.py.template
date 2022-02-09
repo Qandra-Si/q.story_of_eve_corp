@@ -1,4 +1,5 @@
-﻿from enum import Enum
+﻿import datetime
+from enum import Enum
 
 
 class RenderLayout(Enum):
@@ -104,31 +105,46 @@ REGION_SETUP: ((int, int, int), int) = ((0x72, 0x8f, 0xce), 5)  # light purple b
 # формат csv файла events-utf8.txt
 FILE_EVENTS_NAME: str = "events-utf8.txt"
 FILE_EVENTS_COL_DATE: int = 0
-FILE_EVENTS_COL_LEVEL: int = 1
-FILE_EVENTS_COL_TXT: int = 2
+FILE_EVENTS_COLS = [
+    ('date', datetime.datetime),
+    ('level', int),
+    ('txt', str),
+]
 # формат csv файла killmails-utf8.txt
 FILE_KILLMAILS_NAME: str = "killmails-utf8.txt"
 FILE_KILLMAILS_COL_DATE: int = 0
-FILE_KILLMAILS_COL_VICTIM: int = 1
-FILE_KILLMAILS_COL_SHIPTYPE: int = 2
-FILE_KILLMAILS_COL_MASS: int = 3
-FILE_KILLMAILS_COL_TXT: int = 4
-FILE_KILLMAILS_COL_SYSTEM: int = 5
+FILE_KILLMAILS_COLS = [
+    ('date', datetime.datetime),
+    ('victim', int),
+    ('shiptype', int),
+    ('mass', float),
+    ('txt', str),
+    ('system', int),
+]
 # формат csv файла industry_jobs-utf8.txt
 FILE_INDUSTRY_NAME: str = "industry_jobs-utf8.txt"
 FILE_INDUSTRY_COL_DATE: int = 0
-FILE_INDUSTRY_COL_JOBS: int = 1
-FILE_INDUSTRY_COL_SYSTEM: int = 2
+FILE_INDUSTRY_COLS = [
+    ('date', datetime.datetime),
+    ('jobs', int),
+    ('system', int),
+]
 # формат csv файла market-utf8.txt
 FILE_MARKET_NAME: str = "market-utf8.txt"
 FILE_MARKET_COL_DATE: int = 0
-FILE_MARKET_COL_SYSTEM: int = 1
-FILE_MARKET_COL_ISK: int = 2
+FILE_MARKET_COLS = [
+    ('date', datetime.datetime),
+    ('system', int),
+    ('isk', float),
+]
 # формат csv файла employment_interval-utf8.txt
 FILE_EMPLOYMENT_NAME: str = "employment_interval-utf8.txt"
-FILE_EMPLOYMENT_COL_MAIN_ID: int = 0
-FILE_EMPLOYMENT_COL_TWINK_ID: int = 1
-FILE_EMPLOYMENT_COL_MAIN_NAME: int = 2
-FILE_EMPLOYMENT_COL_TWINK_NAME: int = 3
 FILE_EMPLOYMENT_COL_ENTER_DATE: int = 4
-FILE_EMPLOYMENT_COL_GONE_DATE: int = 5
+FILE_EMPLOYMENT_COLS = [
+    ('main_id', int),
+    ('twink_id', int),
+    ('main_name', str),
+    ('twink_name', str),
+    ('enter_date', datetime.datetime),
+    ('gone_date', datetime.datetime),
+]

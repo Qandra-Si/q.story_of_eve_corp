@@ -458,7 +458,7 @@ class RenderFadeInRepository:
 class RenderPilots:
     def __init__(
             self,
-            employment_with_dates: typing.List[typing.List[str]],
+            employment_with_dates: typing.List[typing.Any],
             pilot_img: Image,
             pilot_contour_img: Image):
         # иконки для рисования пилотов
@@ -487,21 +487,8 @@ class RenderPilots:
         self.contour_img_3rd.putalpha(0x99)
         self.contour_img_4th = __pilot_contour_img.copy()
         self.contour_img_4th.putalpha(0xcc)
-
         # коллекция пилотов (их идентификаторов) для отслеживания активности в корпорации
-        self.pilots: typing.List[(int, int, str, str, datetime.date, typing.Optional[datetime.date])] = []
-        for p in employment_with_dates:
-            enter: datetime.date = datetime.datetime.strptime(p[render_settings.FILE_EMPLOYMENT_COL_ENTER_DATE], '%Y-%m-%d')
-            gone_str: str = p[render_settings.FILE_EMPLOYMENT_COL_GONE_DATE]
-            gone: typing.Optional[datetime.date] = datetime.datetime.strptime(gone_str, '%Y-%m-%d') if gone_str else None
-            self.pilots.append((
-                int(p[render_settings.FILE_EMPLOYMENT_COL_MAIN_ID]),
-                int(p[render_settings.FILE_EMPLOYMENT_COL_TWINK_ID]),
-                p[render_settings.FILE_EMPLOYMENT_COL_MAIN_NAME],
-                p[render_settings.FILE_EMPLOYMENT_COL_TWINK_NAME],
-                enter,
-                gone,
-            ))
+        self.pilots: typing.List[typing.Any] = employment_with_dates
 
 
 class RenderUniverse:
@@ -614,9 +601,9 @@ class RenderUniverse:
         # ---
         main_pilot_id: typing.Optional[int] = None
         for p in pilots.pilots:
-            main: int = p[render_settings.FILE_EMPLOYMENT_COL_MAIN_ID]
-            enter: datetime.date = p[render_settings.FILE_EMPLOYMENT_COL_ENTER_DATE]
-            gone: typing.Optional[datetime.date] = p[render_settings.FILE_EMPLOYMENT_COL_GONE_DATE]
+            main: int = p.main_id
+            enter: datetime.date = p.enter_date
+            gone: typing.Optional[datetime.date] = p.gone_date
             if enter <= render_date and (gone is None or render_date <= gone):
                 # выбор картинок, которыми будем пользоваться
                 if enter == render_date or (gone and gone == render_date):
@@ -715,24 +702,50 @@ class RenderRegionsActivity:
                 r.update(patched)
 
 
+class ImportedData:
+    def __init__(self):
+        pass
+
+
 def read_csv_file(
         fname: str,
         file_date_col: int,
         start_date: typing.Optional[datetime.datetime],
         stop_date: typing.Optional[datetime.datetime],
-        preload_early_dates: bool = False) -> typing.List[typing.List[str]]:
-    list_with_dates: typing.List[typing.List[str]] = []
+        attributes: typing.List[typing.Tuple[str, typing.Type]],
+        preload_early_dates: bool = False) -> typing.List[typing.Any]:
+    list_with_dates: typing.List[ImportedData] = []
     with open(fname, newline='', encoding='utf8') as f:
         reader = csv.reader(f, delimiter='\t')
         for row in reader:
             dt = datetime.datetime.strptime(row[file_date_col], '%Y-%m-%d')
             if preload_early_dates:
                 if stop_date and (dt <= stop_date) or not stop_date:
-                    list_with_dates.append(row)
+                    pass
+                else:
+                    continue
             else:
                 if start_date and stop_date and (start_date <= dt <= stop_date) or start_date and (start_date <= dt) or \
                    stop_date and (stop_date <= dt) or not start_date and not stop_date:
-                    list_with_dates.append(row)
+                    pass
+                else:
+                    continue
+            # добавление объекта в список в том виде в котором задан формат файла
+            data: ImportedData = ImportedData()
+            for (idx, a) in enumerate(attributes):
+                val: str = row[idx]
+                if a[1] == int:
+                    setattr(data, a[0], int(val) if val else None)
+                elif a[1] == float:
+                    setattr(data, a[0], float(val) if val else None)
+                elif a[1] == datetime.datetime:
+                    if idx == file_date_col:
+                        setattr(data, a[0], dt)
+                    else:
+                        setattr(data, a[0], datetime.datetime.strptime(val, '%Y-%m-%d') if val else None)
+                else:
+                    setattr(data, a[0], val)
+            list_with_dates.append(data)
         del reader
     return list_with_dates
 
@@ -790,54 +803,58 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # читаем данные из файлов
     events_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_EVENTS_NAME), render_settings.FILE_EVENTS_COL_DATE,
-        start_date, stop_date)
+        start_date, stop_date,
+        render_settings.FILE_EVENTS_COLS)
     killmails_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_KILLMAILS_NAME), render_settings.FILE_KILLMAILS_COL_DATE,
-        start_date, stop_date)
+        start_date, stop_date,
+        render_settings.FILE_KILLMAILS_COLS)
     industry_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_INDUSTRY_NAME), render_settings.FILE_INDUSTRY_COL_DATE,
-        start_date, stop_date)
+        start_date, stop_date,
+        render_settings.FILE_INDUSTRY_COLS)
     market_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_MARKET_NAME), render_settings.FILE_MARKET_COL_DATE,
-        start_date, stop_date)
+        start_date, stop_date,
+        render_settings.FILE_MARKET_COLS)
     employment_with_dates = read_csv_file(
         '{}/{}'.format(input_dir, render_settings.FILE_EMPLOYMENT_NAME), render_settings.FILE_EMPLOYMENT_COL_ENTER_DATE,
-        start_date, stop_date, preload_early_dates=True)
+        start_date, stop_date,
+        render_settings.FILE_EMPLOYMENT_COLS,
+        preload_early_dates=True)
 
-    # определяем диапазон дат, которые будут участвовать в создании кадров
+    # определяем начало диапазона, который будет участвовать в создании кадров
     if start_date:
         render_date = start_date
     else:
         dts: typing.List[str] = []
         if events_with_dates:
-            dts.append(events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE])
+            dts.append(events_with_dates[0].date)
         if killmails_with_dates:
-            dts.append(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_DATE])
+            dts.append(killmails_with_dates[0].date)
         if industry_with_dates:
-            dts.append(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_DATE])
+            dts.append(industry_with_dates[0].date)
         if market_with_dates:
-            dts.append(market_with_dates[0][render_settings.FILE_MARKET_COL_DATE])
+            dts.append(market_with_dates[0].date)
         render_date = None
         for dt in dts:
-            dtd = datetime.datetime.strptime(dt, '%Y-%m-%d')
-            if render_date is None or render_date > dtd:
-                render_date = dtd
-    # ---
+            if render_date is None or render_date > dt:
+                render_date = dt
+    # определяем конец диапазона, который будет участвовать в создании кадров
     if not stop_date:
         dtf: typing.List[str] = []
         if events_with_dates:
-            dtf.append(events_with_dates[-1][render_settings.FILE_EVENTS_COL_DATE])
+            dtf.append(events_with_dates[-1].date)
         if killmails_with_dates:
-            dtf.append(killmails_with_dates[-1][render_settings.FILE_KILLMAILS_COL_DATE])
+            dtf.append(killmails_with_dates[-1].date)
         if industry_with_dates:
-            dtf.append(industry_with_dates[-1][render_settings.FILE_INDUSTRY_COL_DATE])
+            dtf.append(industry_with_dates[-1].date)
         if market_with_dates:
-            dtf.append(market_with_dates[-1][render_settings.FILE_MARKET_COL_DATE])
+            dtf.append(market_with_dates[-1].date)
         stop_date = None
         for dt in dtf:
-            dtd = datetime.datetime.strptime(dt, '%Y-%m-%d')
-            if stop_date is None or stop_date < dtd:
-                stop_date = dtd
+            if stop_date is None or stop_date < dt:
+                stop_date = dt
 
     # подготовка регионов к отрисовке
     pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
@@ -906,29 +923,30 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             num_new_events += 1
         # добавляем события "сегодняшнего дня" в список отрисовки
         if events_with_dates:
-            while render_date_str == events_with_dates[0][render_settings.FILE_EVENTS_COL_DATE]:
+            while render_date == events_with_dates[0].date:
                 e: RenderFadeInEvent = RenderFadeInEvent(
-                    events_with_dates[0][render_settings.FILE_EVENTS_COL_TXT],
-                    int(events_with_dates[0][render_settings.FILE_EVENTS_COL_LEVEL]))
+                    events_with_dates[0].txt,
+                    events_with_dates[0].level)
                 render_fade_in.add_event(e)
                 num_new_events += 1
                 del events_with_dates[0]
                 if not events_with_dates:
                     break
+        # добавляем киллмылы "сегодняшнего для" в список отрисовки, готовим маркеры для карты
         if killmails_with_dates:
             num_new_killmails: int = 0
-            while render_date_str == killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_DATE]:
-                solar_system_id: int = int(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SYSTEM])
+            while render_date == killmails_with_dates[0].date:
+                solar_system_id: int = killmails_with_dates[0].system
                 new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
                 if new_region_id is not None:
                     render_fade_in.add_region(RenderFadeInRegion(new_region_id))
                 # ---
-                p = sde_positions.get(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SYSTEM])
+                p = sde_positions.get(str(solar_system_id))
                 k: RenderFadeInKillmail = RenderFadeInKillmail(
-                    killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_VICTIM] == '1',
-                    killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_TXT],
-                    int(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_SHIPTYPE]),
-                    float(killmails_with_dates[0][render_settings.FILE_KILLMAILS_COL_MASS]),
+                    killmails_with_dates[0].victim == 1,
+                    killmails_with_dates[0].txt,
+                    killmails_with_dates[0].shiptype,
+                    killmails_with_dates[0].mass,
                     p[0] if p is not None else None, p[2] if p is not None else None)
                 render_fade_in.add_killmail(k)
                 num_new_killmails += 1
@@ -937,22 +955,22 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                     break
             if verbose and num_new_killmails:
                 print(' {} new killmails'.format(num_new_killmails))
+        # добавляем статистику производства "сегодняшнего для" в список отрисовки, готовим маркеры для карты
         if industry_with_dates:
             num_new_industry_jobs: int = 0
-            while render_date_str == industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_DATE]:
-                solar_system_str: str = industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_SYSTEM]
+            while render_date == industry_with_dates[0].date:
+                solar_system_id: typing.Optional[int] = industry_with_dates[0].system
                 p = None
-                if solar_system_str:
-                    solar_system_id: int = int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_SYSTEM])
+                if solar_system_id is not None:
                     new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
                     if new_region_id is not None:
                         render_fade_in.add_region(RenderFadeInRegion(new_region_id))
-                    p = sde_positions.get(solar_system_str)
+                    p = sde_positions.get(str(solar_system_id))
                 k: RenderFadeInIndustry = RenderFadeInIndustry(
-                    int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_JOBS]),
+                    industry_with_dates[0].jobs,
                     p[0] if p is not None else None, p[2] if p is not None else None)
                 render_fade_in.add_industry(k)
-                num_new_industry_jobs += int(industry_with_dates[0][render_settings.FILE_INDUSTRY_COL_JOBS])
+                num_new_industry_jobs += industry_with_dates[0].jobs
                 del industry_with_dates[0]
                 if not industry_with_dates:
                     break
@@ -963,22 +981,22 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 e: RenderFadeInEvent = RenderFadeInEvent('Industry achievement , {} jobs'.format(maximum_num_of_industry_jobs), 3)
                 render_fade_in.add_event(e)
                 num_new_events += 1
+        # добавляем статистику маркета "сегодняшнего для" в список отрисовки, готовим маркеры для карты
         if market_with_dates:
             sum_isk_per_day: int = 0
-            while render_date_str == market_with_dates[0][render_settings.FILE_MARKET_COL_DATE]:
-                solar_system_str: str = market_with_dates[0][render_settings.FILE_MARKET_COL_SYSTEM]
+            while render_date == market_with_dates[0].date:
+                solar_system_id: typing.Optional[int] = market_with_dates[0].system
                 p = None
-                if solar_system_str:
-                    solar_system_id: int = int(market_with_dates[0][render_settings.FILE_MARKET_COL_SYSTEM])
+                if solar_system_id is not None:
                     new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
                     if new_region_id is not None:
                         render_fade_in.add_region(RenderFadeInRegion(new_region_id))
-                    p = sde_positions.get(solar_system_str)
+                    p = sde_positions.get(str(solar_system_id))
                 k: RenderFadeInMarket = RenderFadeInMarket(
-                    float(market_with_dates[0][render_settings.FILE_MARKET_COL_ISK]),
+                    market_with_dates[0].isk,
                     p[0] if p is not None else None, p[2] if p is not None else None)
                 render_fade_in.add_market(k)
-                sum_isk_per_day += int(float(market_with_dates[0][render_settings.FILE_MARKET_COL_ISK]))
+                sum_isk_per_day += int(market_with_dates[0].isk)
                 del market_with_dates[0]
                 if not market_with_dates:
                     break
@@ -989,6 +1007,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 e: RenderFadeInEvent = RenderFadeInEvent('Market achievement, {:,d} ISK'.format(maximum_isk_per_day), 4)
                 render_fade_in.add_event(e)
                 num_new_events += 1
+        # выводим отладку на экран, если включена
         if verbose and num_new_events:
             print(' {} new events'.format(num_new_events))
 
@@ -1028,8 +1047,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             canvas.save('{}/{:0>5}.png'.format(out_dir, image_index))
             image_index += 1
             # DEBUG: canvas.show()
-            # DEBUG:
-            return
+            # DEBUG: return
 
         del img_draw
         del canvas
