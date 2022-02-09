@@ -651,11 +651,33 @@ class RenderUniverse:
             self.img_draw.text((x - sz[0]/2, y - sz[1]/2), sr['name'], fill=r.color, font=self.region_font)
 
 
+class PlannedMapMovement:
+    def __init__(self, date: datetime.date, ltx: float, ltz: float, rbx: float, rbz: float):
+        self.date: datetime.date = date
+        self.left_top_x: float = ltx
+        self.left_top_z: float = ltz
+        self.right_bottom_x: float = rbx
+        self.right_bottom_z: float = rbz
+
+    def rough_prolongate(self, date: datetime.date, lt=None, rb=None):
+        if not lt or not rb:
+            return PlannedMapMovement(date, self.left_top_x, self.left_top_z, self.right_bottom_x, self.right_bottom_z)
+        else:
+            return PlannedMapMovement(
+                date,
+                min(self.left_top_x, lt['x']),
+                min(self.left_top_z, lt['z']),
+                max(self.right_bottom_x, rb['x']),
+                max(self.right_bottom_z, rb['z'])
+            )
+
+
 class RenderRegionsActivity:
     def __init__(self, regions: typing.Dict[str, typing.Any]):
         self.regions: typing.Dict[str, typing.Any] = regions
         self.using: typing.Dict[int, datetime.date] = {}
         self.magnifier: typing.List[typing.Tuple[datetime.date, typing.Any]] = []
+        self.rough_positions: typing.List[PlannedMapMovement] = []
 
     def draw_contours_of_regions_debug_only(self, img_draw: Image, scale: RenderScale, region_font: ImageFont):
         for region_id in self.using.keys():
@@ -667,7 +689,7 @@ class RenderRegionsActivity:
             zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
             xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
             zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-            img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#333333', width=2)
+            img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#333333', width=1)
             """ """
             contour_center: (float, float, float) = r['center']
             xcent: float = scale.render_center_width + (contour_center['x'] - scale.universe_center_x) * scale.scale_x
@@ -676,17 +698,26 @@ class RenderRegionsActivity:
             img_draw.text((xcent - sz[0]/2, zcent - sz[1]/2), r['name'], fill='#666', font=region_font)
 
     def draw_contours_of_magnifier_debug_only(self, img_draw: Image, scale: RenderScale, render_date: datetime.datetime):
+        # поиск ранее добавленной даты в rough_positions-список
+        pdt = next((p for p in self.rough_positions if p.date == render_date), None)
+        if pdt is not None:
+            contour_min: (float, float) = (pdt.left_top_x, pdt.left_top_z)
+            contour_max: (float, float) = (pdt.right_bottom_x, pdt.right_bottom_z)
+            xmin: float = scale.render_center_width + (contour_min[0] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+            zmin: float = scale.render_half_height - (contour_min[1] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+            xmax: float = scale.render_center_width + (contour_max[0] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+            zmax: float = scale.render_half_height - (contour_max[1] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+            img_draw.rectangle((xmin-1, zmin+1, xmax+1, zmax-1), fill=None, outline='#736AFF', width=2)
         # поиск ранее добавленной даты в magnifier-список
         mdt = next((m for m in self.magnifier if m[0] == render_date), None)
-        if mdt is None:
-            return
-        contour_min: (float, float, float) = mdt[1]['min']
-        contour_max: (float, float, float) = mdt[1]['max']
-        xmin: float = scale.render_center_width + (contour_min['x'] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
-        zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
-        xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
-        zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-        img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#CD7F32', width=2)
+        if mdt is not None:
+            contour_min: (float, float, float) = mdt[1]['min']
+            contour_max: (float, float, float) = mdt[1]['max']
+            xmin: float = scale.render_center_width + (contour_min['x'] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+            zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+            xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+            zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+            img_draw.rectangle((xmin+1, zmin-1, xmax-1, zmax+1), fill=None, outline='#CD7F32', width=2)
 
     def mark_last_time_usage(self, solar_system_id: int, curr_date: datetime.date) -> typing.Optional[int]:
         res: typing.Optional[int] = None
@@ -783,6 +814,80 @@ class RenderRegionsActivity:
                 mdt[1]['max'] = eve_sde_tools.get_max_coordinates(mdt[1]['max'], region['max'])
         # сортируем полученный magnifier-список в порядке возрастания дат
         self.magnifier.sort(key=lambda mdt: mdt[0])
+
+    def plan_rough_positioning(self, start_date: datetime.datetime):
+        # magnifier - в этом списке точные рамки регионов и прореженные (с разрывами) даты
+        # rough_positions - в этом списке рамки регионов продлены (prolongated) на 15-сек интервалы, даты тоже прорежены
+        self.rough_positions.clear()
+        if not self.magnifier:
+            return
+        # получаем даты начала и конца
+        curr_region = self.magnifier[0]
+        curr_date: datetime.date = curr_region[0]
+        till_date: datetime.date = self.magnifier[-1][0]
+        # добавляем первый элемент в список "грубого позиционирования"
+        prev_movement: typing.Optional[PlannedMapMovement] = PlannedMapMovement(
+            curr_date,
+            curr_region[1]['min']['x'],
+            curr_region[1]['min']['z'],
+            curr_region[1]['max']['x'],
+            curr_region[1]['max']['z'])
+        self.rough_positions.append(prev_movement)
+        # сохраняем позиции регионов с тем чтобы была возможность вернуться к ним
+        deferred_positions = []
+        for i in range(render_settings.DURATION_FREEZING):
+            deferred_positions.append(curr_region[1])
+        # в начало списка копируем регион с которого magnifier-список не начинался
+        if start_date < curr_date:
+            self.rough_positions.insert(0, prev_movement.rough_prolongate(start_date))
+        # в цикле повторяем до последней даты
+        curr_index: int = 1
+        till_index: int = len(self.magnifier) - 1
+        freeze_index: int = render_settings.DURATION_FREEZING
+        while curr_date != till_date:
+            curr_date += datetime.timedelta(days=1)
+            # список задержанных позиций периодически чистим от устаревшей инфы
+            if deferred_positions:
+                del deferred_positions[0]
+            # 1. проверям что magnifier-список не кончился
+            # 2. если magnifier-список уже кончился, то план перемещений больше не плодим (freeze встаёт)
+            if curr_index != till_index:
+                # у текущего magnifier-элемента смотрим дату, если уже наступила, то обрабатываем элемент и идём далее
+                curr_region = self.magnifier[curr_index]
+                if curr_date == curr_region[0]:
+                    if not prev_movement:
+                        for i in range(render_settings.DURATION_FREEZING):
+                            deferred_positions.append(curr_region[1])
+                        prev_movement = PlannedMapMovement(
+                            curr_date,
+                            curr_region[1]['min']['x'],
+                            curr_region[1]['min']['z'],
+                            curr_region[1]['max']['x'],
+                            curr_region[1]['max']['z'])
+                    else:
+                        deferred_positions.append(curr_region[1])
+                        lt = curr_region[1]['min']
+                        rb = curr_region[1]['max']
+                        for d in deferred_positions:
+                            lt = eve_sde_tools.get_min_coordinates(lt, d['min'])
+                            rb = eve_sde_tools.get_max_coordinates(rb, d['max'])
+                        prev_movement = PlannedMapMovement(curr_date, lt['x'], lt['z'], rb['x'], rb['z'])
+                    self.rough_positions.append(prev_movement)
+                    curr_index += 1
+                    freeze_index = render_settings.DURATION_FREEZING
+                # если дата не наступила, то удержимаем план перемещений в freezing-режиме
+                elif curr_date < curr_region[0]:
+                    if freeze_index != 1:
+                        deferred_positions.append(deferred_positions[-1])
+                        prev_movement = prev_movement.rough_prolongate(curr_date)
+                        self.rough_positions.append(prev_movement)
+                        freeze_index -= 1
+                    else:
+                        deferred_positions.clear()
+                        prev_movement = None
+                # то чего не может быть - даты в magnifier-списке должны быть отсортированы
+                else:
+                    raise Exception('Illegal date sequence')
 
 
 class ImportedData:
@@ -959,6 +1064,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         killmails_with_dates,
         industry_with_dates,
         market_with_dates)
+    regions_activity.plan_rough_positioning(render_date)
     # уничтожаем исходную информацию о регионах, пользоваться нельзя - она будет patch-иться
     del sde_regions
     # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
@@ -1109,9 +1215,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             img_draw = ImageDraw.Draw(canvas, 'RGB')
             # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
             # наносим на изображение контуры регионов (отладочный режим)
-            # DEBUG: regions_activity.draw_contours_of_regions_debug_only(img_draw, render_scale, region_font)
             # DEBUG:
             regions_activity.draw_contours_of_magnifier_debug_only(img_draw, render_scale, render_date)
+            # DEBUG:
+            regions_activity.draw_contours_of_regions_debug_only(img_draw, render_scale, region_font)
 
             # генерируем рисовалку вселенной и корпоративных событий
             renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, region_font)
