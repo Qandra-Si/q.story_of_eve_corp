@@ -652,24 +652,102 @@ class RenderUniverse:
 
 
 class PlannedMapMovement:
-    def __init__(self, date: datetime.date, ltx: float, ltz: float, rbx: float, rbz: float):
+    def __init__(
+            self,
+            date: datetime.date,
+            ltx: float, lltx: int,
+            ltz: float, lltz: int,
+            rbx: float, lrbx: int,
+            rbz: float, lrbz: int):
         self.date: datetime.date = date
-        self.left_top_x: float = ltx
-        self.left_top_z: float = ltz
-        self.right_bottom_x: float = rbx
-        self.right_bottom_z: float = rbz
+        # сохраняем габариты группы регионов в которых происходят события
+        self.left_x: float = ltx
+        self.top_z: float = ltz
+        self.right_x: float = rbx
+        self.bottom_z: float = rbz
+        # признаки фиксации габаритов групп регионов по соответствующим сторонам
+        # если все признаки больше MOVEMENT_FREEZE_DURATION, то активности на карте не было и регион "продлён"
+        # относительно предшествующих событий
+        self.locked_minx: int = lltx
+        self.locked_minz: int = lltz
+        self.locked_maxx: int = lrbx
+        self.locked_maxz: int = lrbz
+        # признак того, что группа регионов "задержана" относительно предшествующих событий (подробнее см. locked_xxx)
+        self.freezed: bool = False
+        # готовим поля объекта, которые будут пересчитываться в динамике сравнением копий этих объектов по разным датам
+        # (на каждом шаге преобразований пока алгоритм не готов полностью, стараемся сохранить полученные данные, для
+        # того чтобы пользоваться отладкой по регионам карты)
+        self.moved_minx: float = self.left_x
+        self.moved_minz: float = self.top_z
+        self.moved_maxx: float = self.right_x
+        self.moved_maxz: float = self.bottom_z
+        # расчёт перемещённых центров и рамок с сохранением пропорций видимой области будет завершён после коррекции
+        # всех moved-полей
+        self.width: typing.Optional[float] = None
+        self.height: typing.Optional[float] = None
+        self.center_x: typing.Optional[float] = None
+        self.center_z: typing.Optional[float] = None
+        self.corrected_minx: typing.Optional[float] = None
+        self.corrected_minz: typing.Optional[float] = None
+        self.corrected_maxx: typing.Optional[float] = None
+        self.corrected_maxz: typing.Optional[float] = None
 
-    def rough_prolongate(self, date: datetime.date, lt=None, rb=None):
-        if not lt or not rb:
-            return PlannedMapMovement(date, self.left_top_x, self.left_top_z, self.right_bottom_x, self.right_bottom_z)
+    def do_precise_calculation(self, render_scale: RenderScale):
+        # рассчитываем местоположение центра группы регионов с событиями
+        self.width: float = self.moved_maxx - self.moved_minx
+        self.height: float = self.moved_maxz - self.moved_minz
+        self.center_x = self.moved_minx + self.width / 2.0
+        self.center_z = self.moved_minz + self.height / 2.0
+        # рассчитываем пропорцию группы регионов с событиями по отношению к размеру карты (масштаб)
+        map_proportion = render_scale.universe_width / render_scale.universe_height
+        local_proportion: float = self.width / self.height
+        if map_proportion > local_proportion:
+            # группа регионов УЖЕ, надо её вписывать по высоте
+            new_width: float = self.height * map_proportion
+            self.width = new_width
+            # при увеличении ширины области можем выехать за пределы карты слева или справа (корректируем центр)
+            out_of_bounds_left: float = self.center_x - new_width/2 + render_scale.min_x
+            if out_of_bounds_left > 0:
+                self.center_x += out_of_bounds_left
+            out_of_bounds_right: float = self.center_x + new_width/2 - render_scale.max_x
+            if out_of_bounds_right > 0:
+                self.center_x -= out_of_bounds_right
         else:
-            return PlannedMapMovement(
-                date,
-                min(self.left_top_x, lt['x']),
-                min(self.left_top_z, lt['z']),
-                max(self.right_bottom_x, rb['x']),
-                max(self.right_bottom_z, rb['z'])
-            )
+            # группа регионов ШИРЕ, надо её вписывать по ширине
+            new_height: float = self.width / map_proportion
+            self.height = new_height
+            # при увеличении высоты области можем выехать за пределы карты сверху или снизу (корректируем центр)
+            out_of_bounds_top: float = self.center_z - new_height/2 + render_scale.min_z
+            if out_of_bounds_top > 0:
+                self.center_z += out_of_bounds_top
+            out_of_bounds_bottom: float = self.center_z + new_height/2 - render_scale.max_z
+            if out_of_bounds_bottom > 0:
+                self.center_z -= out_of_bounds_bottom
+        # рассчитываем расположение left/right/top/bottom линий, откорректированных в процессе динамических коррекций
+        self.corrected_minx = self.center_x - self.width/2
+        self.corrected_minz = self.center_z - self.height/2
+        self.corrected_maxx = self.center_x + self.width/2
+        self.corrected_maxz = self.center_z + self.height/2
+
+    """
+    def __prolongate_not_freeze(self, date: datetime.date):
+        copy: PlannedMapMovement = PlannedMapMovement(
+            date,
+            self.left_x, render_settings.MOVEMENT_FREEZE_DURATION + 1,
+            self.top_z, render_settings.MOVEMENT_FREEZE_DURATION + 1,
+            self.right_x, render_settings.MOVEMENT_FREEZE_DURATION + 1,
+            self.bottom_z, render_settings.MOVEMENT_FREEZE_DURATION + 1)
+        return copy
+    """
+
+    def prolongate(self, date: datetime.date):
+        copy: PlannedMapMovement = PlannedMapMovement(
+            date,
+            self.left_x, self.locked_minx + 1,
+            self.top_z, self.locked_minz + 1,
+            self.right_x, self.locked_maxx + 1,
+            self.bottom_z, self.locked_maxz + 1)
+        return copy
 
 
 class RenderRegionsActivity:
@@ -689,7 +767,7 @@ class RenderRegionsActivity:
             zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
             xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
             zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-            img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#333333', width=1)
+            img_draw.rectangle((xmin+1, zmin-1, xmax-1, zmax+1), fill=None, outline='#333333', width=1)
             """ """
             contour_center: (float, float, float) = r['center']
             xcent: float = scale.render_center_width + (contour_center['x'] - scale.universe_center_x) * scale.scale_x
@@ -698,26 +776,53 @@ class RenderRegionsActivity:
             img_draw.text((xcent - sz[0]/2, zcent - sz[1]/2), r['name'], fill='#666', font=region_font)
 
     def draw_contours_of_magnifier_debug_only(self, img_draw: Image, scale: RenderScale, render_date: datetime.datetime):
-        # поиск ранее добавленной даты в rough_positions-список
+        # увеличить контур региона на 1px: -1, +1, +1, -1
+        # уменьшить контур региона на 1px: +1, -1, -1, +1
+        # отрисовка областей с событиями с учётом пропорций карты и её видимой области на экране
         pdt = next((p for p in self.rough_positions if p.date == render_date), None)
         if pdt is not None:
-            contour_min: (float, float) = (pdt.left_top_x, pdt.left_top_z)
-            contour_max: (float, float) = (pdt.right_bottom_x, pdt.right_bottom_z)
-            xmin: float = scale.render_center_width + (contour_min[0] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
-            zmin: float = scale.render_half_height - (contour_min[1] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
-            xmax: float = scale.render_center_width + (contour_max[0] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
-            zmax: float = scale.render_half_height - (contour_max[1] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-            img_draw.rectangle((xmin-1, zmin+1, xmax+1, zmax-1), fill=None, outline='#736AFF', width=2)
+            """
+            center_x: float = scale.render_center_width + (pdt.center_x - scale.universe_center_x) * scale.scale_x
+            center_z: float = scale.render_half_height - (pdt.center_z - scale.universe_center_z) * scale.scale_z
+            width: float = pdt.width * scale.scale_x + 2 * render_settings.SOLAR_SYSTEM_FATNESS
+            height: float = pdt.height * scale.scale_z + 2 * render_settings.SOLAR_SYSTEM_FATNESS
+            img_draw.rectangle((center_x-width/2-2, center_z+height/2+2, center_x+width/2+2, center_z-height/2-2), fill=None, outline='#66FF00', width=1)
+            """
+            """
+            # красный - ОТМАСШТАБИРОВАННАЯ ВИДИМАЯ область с учётом перемещений и коррекций пропорций
+            xmin: float = scale.render_center_width + (pdt.corrected_minx - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+            zmin: float = scale.render_half_height - (pdt.corrected_minz - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+            xmax: float = scale.render_center_width + (pdt.corrected_maxx - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+            zmax: float = scale.render_half_height - (pdt.corrected_maxz - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+            img_draw.rectangle((xmin-3, zmin+3, xmax+3, zmax-3), fill=None, outline='#770000', width=1)
+            """
+            # малиновый - неотмасштабированная область в которой учтены ПЕРЕМЕЩЕНИЯ видимой области и СМЕЩЕНИЯ фокуса
+            xmin: float = scale.render_center_width + (pdt.moved_minx - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+            zmin: float = scale.render_half_height - (pdt.moved_minz - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+            xmax: float = scale.render_center_width + (pdt.moved_maxx - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+            zmax: float = scale.render_half_height - (pdt.moved_maxz - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+            img_draw.rectangle((xmin-2, zmin+2, xmax+2, zmax-2), fill=None, outline='#7D0552' if not pdt.freezed else '#550A35', width=1)
+            # зелёный - ИСХОДНОЕ положение ГРУППЫ регионов до масштабирований и перемещений
+            xmin: float = scale.render_center_width + (pdt.left_x - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
+            zmin: float = scale.render_half_height - (pdt.top_z - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
+            xmax: float = scale.render_center_width + (pdt.right_x - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
+            zmax: float = scale.render_half_height - (pdt.bottom_z - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
+            # img_draw.rectangle((xmin-1, zmin+1, xmax+1, zmax-1), fill=None, outline='#66FF00' if not pdt.prolongated and not pdt.freezed else '#046307', width=1)
+            img_draw.line((xmin-1, zmin+1, xmax+1, zmin+1), fill='#66FF00' if pdt.locked_minz <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
+            img_draw.line((xmax+1, zmin+1, xmax+1, zmax-1), fill='#66FF00' if pdt.locked_maxx <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
+            img_draw.line((xmax+1, zmax-1, xmin-1, zmax-1), fill='#66FF00' if pdt.locked_maxz <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
+            img_draw.line((xmin-1, zmax-1, xmin-1, zmin+1), fill='#66FF00' if pdt.locked_minx <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
         # поиск ранее добавленной даты в magnifier-список
         mdt = next((m for m in self.magnifier if m[0] == render_date), None)
         if mdt is not None:
+            # рыжий - АКТИВНЫЙ регион ПРЯМО СЕЙЧАС
             contour_min: (float, float, float) = mdt[1]['min']
             contour_max: (float, float, float) = mdt[1]['max']
             xmin: float = scale.render_center_width + (contour_min['x'] - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
             zmin: float = scale.render_half_height - (contour_min['z'] - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
             xmax: float = scale.render_center_width + (contour_max['x'] - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
             zmax: float = scale.render_half_height - (contour_max['z'] - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-            img_draw.rectangle((xmin+1, zmin-1, xmax-1, zmax+1), fill=None, outline='#CD7F32', width=2)
+            img_draw.rectangle((xmin, zmin, xmax, zmax), fill=None, outline='#CD7F32', width=1)
 
     def mark_last_time_usage(self, solar_system_id: int, curr_date: datetime.date) -> typing.Optional[int]:
         res: typing.Optional[int] = None
@@ -733,7 +838,7 @@ class RenderRegionsActivity:
     def pass_to_date(self, curr_date: datetime.date):
         regions_to_delete: typing.Set[int] = set()
         for (region_id, dt) in self.using.items():
-            if (dt + datetime.timedelta(days=render_settings.DURATION_REGION)) < curr_date:
+            if (dt + datetime.timedelta(days=render_settings.DURATION_REGION_NAME)) < curr_date:
                 regions_to_delete.add(region_id)
         for region_id in regions_to_delete:
             del self.using[region_id]
@@ -817,7 +922,7 @@ class RenderRegionsActivity:
 
     def plan_rough_positioning(self, start_date: datetime.datetime):
         # magnifier - в этом списке точные рамки регионов и прореженные (с разрывами) даты
-        # rough_positions - в этом списке рамки регионов продлены (prolongated) на 15-сек интервалы, даты тоже прорежены
+        # rough_positions - в этом списке рамки регионов продлены (freezed) на 15-сек интервалы, даты тоже прорежены
         self.rough_positions.clear()
         if not self.magnifier:
             return
@@ -828,27 +933,31 @@ class RenderRegionsActivity:
         # добавляем первый элемент в список "грубого позиционирования"
         prev_movement: typing.Optional[PlannedMapMovement] = PlannedMapMovement(
             curr_date,
-            curr_region[1]['min']['x'],
-            curr_region[1]['min']['z'],
-            curr_region[1]['max']['x'],
-            curr_region[1]['max']['z'])
+            curr_region[1]['min']['x'], 1,
+            curr_region[1]['min']['z'], 1,
+            curr_region[1]['max']['x'], 1,
+            curr_region[1]['max']['z'], 1)
         self.rough_positions.append(prev_movement)
         # сохраняем позиции регионов с тем чтобы была возможность вернуться к ним
+        """
         deferred_positions = []
-        for i in range(render_settings.DURATION_FREEZING):
+        for i in range(render_settings.MOVEMENT_FREEZE_DURATION):
             deferred_positions.append(curr_region[1])
+        """
         # в начало списка копируем регион с которого magnifier-список не начинался
         if start_date < curr_date:
-            self.rough_positions.insert(0, prev_movement.rough_prolongate(start_date))
+            self.rough_positions.insert(0, prev_movement.prolongate(start_date))
         # в цикле повторяем до последней даты
         curr_index: int = 1
         till_index: int = len(self.magnifier) - 1
-        freeze_index: int = render_settings.DURATION_FREEZING
-        while curr_date != till_date:
+        freeze_index: int = render_settings.MOVEMENT_FREEZE_DURATION
+        while curr_date <= till_date:
             curr_date += datetime.timedelta(days=1)
-            # список задержанных позиций периодически чистим от устаревшей инфы
+            """
+            "# список задержанных позиций периодически чистим от устаревшей инфы
             if deferred_positions:
                 del deferred_positions[0]
+            """
             # 1. проверям что magnifier-список не кончился
             # 2. если magnifier-список уже кончился, то план перемещений больше не плодим (freeze встаёт)
             if curr_index != till_index:
@@ -856,38 +965,227 @@ class RenderRegionsActivity:
                 curr_region = self.magnifier[curr_index]
                 if curr_date == curr_region[0]:
                     if not prev_movement:
-                        for i in range(render_settings.DURATION_FREEZING):
+                        """
+                        for i in range(render_settings.MOVEMENT_FREEZE_DURATION):
                             deferred_positions.append(curr_region[1])
+                        """
                         prev_movement = PlannedMapMovement(
                             curr_date,
-                            curr_region[1]['min']['x'],
-                            curr_region[1]['min']['z'],
-                            curr_region[1]['max']['x'],
-                            curr_region[1]['max']['z'])
+                            curr_region[1]['min']['x'], 1,
+                            curr_region[1]['min']['z'], 1,
+                            curr_region[1]['max']['x'], 1,
+                            curr_region[1]['max']['z'], 1)
                     else:
+                        ltx, ltz, rbx, rbz = (prev_movement.left_x, prev_movement.top_z, prev_movement.right_x, prev_movement.bottom_z)
+                        lltx, lltz, lrbx, lrbz = (prev_movement.locked_minx + 1, prev_movement.locked_minz + 1, prev_movement.locked_maxx + 1, prev_movement.locked_maxz + 1)
+                        if curr_region[1]['min']['x'] < ltx:
+                            ltx = curr_region[1]['min']['x']
+                            lltx = 1
+                        if curr_region[1]['min']['z'] < ltz:
+                            ltz = curr_region[1]['min']['z']
+                            lltz = 1
+                        if curr_region[1]['max']['x'] > rbx:
+                            rbx = curr_region[1]['max']['x']
+                            lrbx = 1
+                        if curr_region[1]['max']['z'] > rbz:
+                            rbz = curr_region[1]['max']['z']
+                            lrbz = 1
+                        """
+                        ltx, ltz, rbx, rbz = (curr_region[1]['min']['x'], curr_region[1]['min']['z'], curr_region[1]['max']['x'], curr_region[1]['max']['z'])
+                        lltx, lltz, lrbx, lrbz = (prev_movement.locked_minx + 1, prev_movement.locked_minz + 1, prev_movement.locked_maxx + 1, prev_movement.locked_maxz + 1)
                         deferred_positions.append(curr_region[1])
-                        lt = curr_region[1]['min']
-                        rb = curr_region[1]['max']
                         for d in deferred_positions:
-                            lt = eve_sde_tools.get_min_coordinates(lt, d['min'])
-                            rb = eve_sde_tools.get_max_coordinates(rb, d['max'])
-                        prev_movement = PlannedMapMovement(curr_date, lt['x'], lt['z'], rb['x'], rb['z'])
+                            if ltx < d['min']['x']:
+                                ltx = d['min']['x']
+                                lltx = 1
+                            if ltz < d['min']['z']:
+                                ltz = d['min']['z']
+                                lltz = 1
+                            if rbx > d['max']['x']:
+                                rbx = d['max']['x']
+                                lrbx = 1
+                            if rbz > d['max']['z']:
+                                rbz = d['max']['z']
+                                lrbz = 1
+                        """
+                        prev_movement = PlannedMapMovement(curr_date, ltx, lltx, ltz, lltz, rbx, lrbx, rbz, lrbz)
                     self.rough_positions.append(prev_movement)
                     curr_index += 1
-                    freeze_index = render_settings.DURATION_FREEZING
+                    freeze_index = render_settings.MOVEMENT_FREEZE_DURATION
                 # если дата не наступила, то удержимаем план перемещений в freezing-режиме
                 elif curr_date < curr_region[0]:
                     if freeze_index != 1:
+                        """
                         deferred_positions.append(deferred_positions[-1])
-                        prev_movement = prev_movement.rough_prolongate(curr_date)
+                        """
+                        prev_movement = prev_movement.prolongate(curr_date)
                         self.rough_positions.append(prev_movement)
                         freeze_index -= 1
                     else:
+                        """
                         deferred_positions.clear()
+                        """
                         prev_movement = None
                 # то чего не может быть - даты в magnifier-списке должны быть отсортированы
                 else:
                     raise Exception('Illegal date sequence')
+        # теперь добавляем в список недостающие фреймы (рамки регионов)
+        prev_position: PlannedMapMovement = self.rough_positions[0]
+        curr_date: datetime.date = prev_position.date
+        curr_index: int = 1
+        while curr_date < till_date:
+            curr_date += datetime.timedelta(days=1)
+            if curr_index < len(self.rough_positions):
+                curr_position: PlannedMapMovement = self.rough_positions[curr_index]
+                if curr_date == curr_position.date:
+                    prev_position = curr_position
+                    curr_index += 1
+                    continue
+            prev_position = prev_position.prolongate(curr_date)
+            self.rough_positions.insert(curr_index, prev_position)
+            curr_index += 1
+
+    def plan_precise_positioning(self, render_scale: RenderScale):
+        # определяем массивы где будем хранить индексы тех рамок в отношении которых уже выполнялось расширение,
+        # увеличивать значения можно, уменьшать или повторять нельзя (предохранение от многократного расширения туда же)
+        grows_minx, grows_minz, grows_maxx, grows_maxz = ([], [], [], [])
+        shrinks_minx, shrinks_minz, shrinks_maxx, shrinks_maxz = ([], [], [], [])
+        for l in (grows_minx, grows_minz, grows_maxx, grows_maxz, shrinks_minx, shrinks_minz, shrinks_maxx, shrinks_maxz):
+            for idx in range(len(self.rough_positions)):
+                l.append(idx)
+        # перебираем рамки регионов и увеличиваем их если необходимо
+        last_index: int = len(self.rough_positions) - 1
+        for (curr_index, curr_p) in enumerate(self.rough_positions):
+            # определяем изменение габаритных размеров рамок групп регионов (на несколько суток вперёд)
+            grow_minx, grow_minz, grow_maxx, grow_maxz = (curr_p.moved_minx, curr_p.moved_minz, curr_p.moved_maxx, curr_p.moved_maxz)
+            shrink_minx, shrink_minz, shrink_maxx, shrink_maxz = (curr_p.moved_minx, curr_p.moved_minz, curr_p.moved_maxx, curr_p.moved_maxz)
+            # определяем кол-во дней за которое необходимо увеличить соответствующую границу?
+            grow_need_minx, grow_need_minz, grow_need_maxx, grow_need_maxz = (0, 0, 0, 0)
+            shrink_need_minx, shrink_need_minz, shrink_need_maxx, shrink_need_maxz = (0, 0, 0, 0)
+            for next_index in range(curr_index + 1, curr_index + 10):
+                if next_index >= last_index:
+                    break
+                next_p: PlannedMapMovement = self.rough_positions[next_index]
+                need_step: int = next_index - curr_index
+                # ---
+                if (grow_need_minx == 0) and (next_p.left_x < grow_minx):
+                    grow_minx = next_p.left_x
+                    grow_need_minx = need_step
+                if shrink_need_minx == 0:
+                    if grows_minx[next_index] != next_index:
+                        shrink_minx = None
+                    elif shrink_minx and (next_p.left_x > shrink_minx):
+                        shrink_minx = next_p.left_x
+                        shrink_need_minx = need_step
+                # ---
+                if (grow_need_minz == 0) and (next_p.top_z < grow_minz):
+                    grow_minz = next_p.top_z
+                    grow_need_minz = need_step
+                if shrink_need_minz == 0:
+                    if grows_minz[next_index] != next_index:
+                        shrink_minz = None
+                    elif shrink_minz and (next_p.top_z > shrink_minz):
+                        shrink_minz = next_p.top_z
+                        shrink_need_minz = need_step
+                # ---
+                if (grow_need_maxx == 0) and (next_p.right_x > grow_maxx):
+                    grow_maxx = next_p.right_x
+                    grow_need_maxx = need_step
+                if shrink_need_maxx == 0:
+                    if grows_maxx[next_index] != next_index:
+                        shrink_maxx = None
+                    elif shrink_maxx and (next_p.right_x < shrink_maxx):
+                        shrink_maxx = next_p.right_x
+                        shrink_need_maxx = need_step
+                # ---
+                if (grow_need_maxz == 0) and (next_p.bottom_z > grow_maxz):
+                    grow_maxz = next_p.bottom_z
+                    grow_need_maxz = need_step
+                if shrink_need_maxz == 0:
+                    if grows_maxz[next_index] != next_index:
+                        shrink_maxz = None
+                    elif shrink_maxz and (next_p.bottom_z < shrink_maxz):
+                        shrink_maxz = next_p.bottom_z
+                        shrink_need_maxz = need_step
+            # определяем направление движения рамок групп регионов (интерпретируется как "граница двигается в сторону")
+            grow_move_minx, grow_move_minz, grow_move_maxx, grow_move_maxz = (
+                grow_minx - curr_p.moved_minx,
+                grow_minz - curr_p.moved_minz,
+                grow_maxx - curr_p.moved_maxx,
+                grow_maxz - curr_p.moved_maxz)
+            shrink_move_minx, shrink_move_minz, shrink_move_maxx, shrink_move_maxz = (
+                shrink_minx - curr_p.moved_minx if shrink_minx else 0.0,
+                shrink_minz - curr_p.moved_minz if shrink_minz else 0.0,
+                shrink_maxx - curr_p.moved_maxx if shrink_maxx else 0.0,
+                shrink_maxz - curr_p.moved_maxz if shrink_maxz else 0.0)
+            # увеличивать габариты рамки можно всегда, т.к. в неё попадут все нужные регионы
+            if grow_move_minx < -1.0:
+                delta: float = grow_move_minx / grow_need_minx
+                need_index: int = curr_index + grow_need_minx
+                for idx in range(curr_index + 1, need_index):
+                    if grows_minx[idx] < need_index:
+                        self.rough_positions[idx].moved_minx = curr_p.moved_minx + delta * (idx - curr_index)
+                        grows_minx[idx] = need_index
+            elif shrink_move_minx > 1.0:
+                delta: float = shrink_move_minx / shrink_need_minx
+                need_index: int = curr_index + shrink_need_minx
+                for idx in range(curr_index + 1, need_index):
+                    if grows_minx[idx] < need_index and shrinks_minx[idx] < need_index:
+                        self.rough_positions[idx].moved_minx = curr_p.moved_minx + delta * (idx - curr_index)
+                        grows_minx[idx] = need_index
+                        shrinks_minx[idx] = need_index
+            # ---
+            if grow_move_minz < -1.0:
+                delta: float = grow_move_minz / grow_need_minz
+                need_index: int = curr_index + grow_need_minz
+                for idx in range(curr_index + 1, need_index):
+                    if grows_minz[idx] < need_index:
+                        self.rough_positions[idx].moved_minz = curr_p.moved_minz + delta * (idx - curr_index)
+                        grows_minz[idx] = need_index
+            elif shrink_move_minz > 1.0:
+                delta: float = shrink_move_minz / shrink_need_minz
+                need_index: int = curr_index + shrink_need_minz
+                for idx in range(curr_index + 1, need_index):
+                    if grows_minz[idx] < need_index and shrinks_minz[idx] < need_index:
+                        self.rough_positions[idx].moved_minz = curr_p.moved_minz + delta * (idx - curr_index)
+                        grows_minz[idx] = need_index
+                        shrinks_minz[idx] = need_index
+            # ---
+            if grow_move_maxx > 1.0:
+                delta: float = grow_move_maxx / grow_need_maxx
+                need_index: int = curr_index + grow_need_maxx
+                for idx in range(curr_index + 1, need_index):
+                    if grows_maxx[idx] < need_index:
+                        self.rough_positions[idx].moved_maxx = curr_p.moved_maxx + delta * (idx - curr_index)
+                        grows_maxx[idx] = need_index
+            elif shrink_move_maxx < -1.0:
+                delta: float = shrink_move_maxx / shrink_need_maxx
+                need_index: int = curr_index + shrink_need_maxx
+                for idx in range(curr_index + 1, need_index):
+                    if grows_maxx[idx] < need_index and shrinks_maxx[idx] < need_index:
+                        self.rough_positions[idx].moved_maxx = curr_p.moved_maxx + delta * (idx - curr_index)
+                        grows_maxx[idx] = need_index
+                        shrinks_maxx[idx] = need_index
+            # ---
+            if grow_move_maxz > 1.0:
+                delta: float = grow_move_maxz / grow_need_maxz
+                need_index: int = curr_index + grow_need_maxz
+                for idx in range(curr_index + 1, need_index):
+                    if grows_maxz[idx] < need_index:
+                        self.rough_positions[idx].moved_maxz = curr_p.moved_maxz + delta * (idx - curr_index)
+                        grows_maxz[idx] = need_index
+            elif shrink_move_maxz < -1.0:
+                delta: float = shrink_move_maxz / shrink_need_maxz
+                need_index: int = curr_index + shrink_need_maxz
+                for idx in range(curr_index + 1, need_index):
+                    if grows_maxz[idx] < need_index and shrinks_maxz[idx] < need_index:
+                        self.rough_positions[idx].moved_maxz = curr_p.moved_maxz + delta * (idx - curr_index)
+                        grows_maxz[idx] = need_index
+                        shrinks_maxz[idx] = need_index
+        # завершаем коррекцию рамок регионов сохраняя пропорции видимой области карты (выравниваем рамки по
+        # ширине и по высоте, не допускаем их выход за пределы видимой области экрана при изменении пропорций)
+        for p in self.rough_positions:
+            p.do_precise_calculation(render_scale)
 
 
 class ImportedData:
@@ -946,11 +1244,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     sde_positions = eve_sde_tools.read_converted(cwd, "fsdUniversePositions")
     if verbose:
         print("Read {} solar systems positions in Universe".format(len(sde_positions)))
+
+    # подготовка координат регионов для отборажения на карте их названий и для расчёта динамического изменения карты
     sde_regions = eve_sde_tools.read_converted(cwd, "fsdRegions")
     sde_pochven = eve_sde_tools.read_converted(cwd, "fsdRegions_2020oct13_patch")
     if verbose:
         print("Read {} regions and their positions plus {} patch for dates after 2020 October 13".format(len(sde_regions), len(sde_pochven)))
-
     # переконвертируем строки в числа и список делаем set-ом
     for r in sde_regions.values():
         systems_as_int: typing.Set[int] = set()
@@ -988,6 +1287,7 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # выбор дат для отрисовки сцен
     start_date = datetime.datetime.strptime(date_from, '%Y-%m-%d') if date_from else None
     stop_date = datetime.datetime.strptime(date_to, '%Y-%m-%d') if date_to else None
+    pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
 
     # читаем данные из файлов
     events_with_dates = read_csv_file(
@@ -1054,26 +1354,28 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         ))
         print('Date from {} and date to {} choosen'.format(render_date, stop_date))
 
-    # подготовка регионов к отрисовке
-    pochven_date = datetime.datetime.strptime('2020-10-13', '%Y-%m-%d')
-    regions_activity: RenderRegionsActivity = RenderRegionsActivity(sde_regions)
-    # расчёт движения карты, т.н. "режим лупы" (строится ДО накладывания pochven-исправления)
-    regions_activity.build_magnifying_regions_by_dates(
-        sde_regions,
-        sde_pochven, pochven_date,
-        killmails_with_dates,
-        industry_with_dates,
-        market_with_dates)
-    regions_activity.plan_rough_positioning(render_date)
-    # уничтожаем исходную информацию о регионах, пользоваться нельзя - она будет patch-иться
+    # включение/отключение режима динамического изменения карты (масштаб, перемещение фокуса и т.п.)
+    regions_activity = RenderRegionsActivity(sde_regions)
+    if render_settings.MOVEMENT_MAP_ENABLED:
+        # расчёт движения карты, т.н. "режим лупы" (строится ДО накладывания pochven-исправления)
+        regions_activity.build_magnifying_regions_by_dates(
+            sde_regions,
+            sde_pochven, pochven_date,
+            killmails_with_dates,
+            industry_with_dates,
+            market_with_dates)
+        regions_activity.plan_rough_positioning(render_date)
+        regions_activity.plan_precise_positioning(render_scale)
+        # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
+        # изменения изображений на карте
+        if render_date > pochven_date:
+            regions_activity.apply_patch(sde_pochven)
+            if verbose:
+                print('Pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
+            del sde_pochven
+            sde_pochven = None
+    # уничтожаем исходную информацию о регионах, пользоваться нельзя - она уже пропатчена (возможно?)
     del sde_regions
-    # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
-    # изменения изображений на карте
-    if render_date > pochven_date:
-        regions_activity.apply_patch(sde_pochven)
-        if verbose:
-            print('Pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
-        del sde_pochven
 
     # набор данных, которые подвергаются мерцанию и переменные для статистики
     render_fade_in: RenderFadeInRepository = RenderFadeInRepository()
@@ -1109,11 +1411,12 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         if verbose:
             print('==', render_date_str)
         # добавляем информацию о появлении нового региона Pochven в EVE Online
-        if render_date == pochven_date:
-            regions_activity.apply_patch(sde_pochven)  # noqa
+        if sde_pochven is not None and (render_date == pochven_date):
+            regions_activity.apply_patch(sde_pochven)
             if verbose:
                 print(' pochven'' patch applied to stored regions, {} regions corrected'.format(len(sde_pochven)))
             del sde_pochven
+            sde_pochven = None
             # ---
             render_fade_in.add_region(RenderFadeInRegion(10000070, color=render_settings.EVENTS_SETUP[5][0]))  # region_id=Pochven
             render_fade_in.add_event(RenderFadeInEvent("Pochven is the region of space introduces at October 13 2020", 5))
@@ -1213,13 +1516,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # создаём канву на которой будем рисовать
             canvas = Image.new('RGB', (render_settings.RENDER_WIDTH, render_settings.RENDER_HEIGHT), 'black')
             img_draw = ImageDraw.Draw(canvas, 'RGB')
-            # DEBUG: img_draw.rectangle((0, 0, 400, 400), fill='#646D7E')
-            # наносим на изображение контуры регионов (отладочный режим)
-            # DEBUG:
-            regions_activity.draw_contours_of_magnifier_debug_only(img_draw, render_scale, render_date)
-            # DEBUG:
-            regions_activity.draw_contours_of_regions_debug_only(img_draw, render_scale, region_font)
-
+            # наносим на изображение контуры регионов (отладочный режим, рамки регионов рисуются под картой)
+            if render_settings.MOVEMENT_MAP_ENABLED and render_settings.MOVEMENT_MAP_DEBUG:
+                regions_activity.draw_contours_of_magnifier_debug_only(img_draw, render_scale, render_date)
+                regions_activity.draw_contours_of_regions_debug_only(img_draw, render_scale, region_font)
             # генерируем рисовалку вселенной и корпоративных событий
             renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, region_font)
             # наносим на изображение список пилотов
