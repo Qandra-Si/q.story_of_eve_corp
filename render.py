@@ -672,8 +672,6 @@ class PlannedMapMovement:
         self.locked_minz: int = lltz
         self.locked_maxx: int = lrbx
         self.locked_maxz: int = lrbz
-        # признак того, что группа регионов "задержана" относительно предшествующих событий (подробнее см. locked_xxx)
-        self.freezed: bool = False
         # готовим поля объекта, которые будут пересчитываться в динамике сравнением копий этих объектов по разным датам
         # (на каждом шаге преобразований пока алгоритм не готов полностью, стараемся сохранить полученные данные, для
         # того чтобы пользоваться отладкой по регионам карты)
@@ -728,17 +726,6 @@ class PlannedMapMovement:
         self.corrected_minz = self.center_z - self.height/2
         self.corrected_maxx = self.center_x + self.width/2
         self.corrected_maxz = self.center_z + self.height/2
-
-    """
-    def __prolongate_not_freeze(self, date: datetime.date):
-        copy: PlannedMapMovement = PlannedMapMovement(
-            date,
-            self.left_x, render_settings.MOVEMENT_FREEZE_DURATION + 1,
-            self.top_z, render_settings.MOVEMENT_FREEZE_DURATION + 1,
-            self.right_x, render_settings.MOVEMENT_FREEZE_DURATION + 1,
-            self.bottom_z, render_settings.MOVEMENT_FREEZE_DURATION + 1)
-        return copy
-    """
 
     def prolongate(self, date: datetime.date):
         copy: PlannedMapMovement = PlannedMapMovement(
@@ -801,13 +788,12 @@ class RenderRegionsActivity:
             zmin: float = scale.render_half_height - (pdt.moved_minz - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
             xmax: float = scale.render_center_width + (pdt.moved_maxx - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
             zmax: float = scale.render_half_height - (pdt.moved_maxz - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-            img_draw.rectangle((xmin-2, zmin+2, xmax+2, zmax-2), fill=None, outline='#7D0552' if not pdt.freezed else '#550A35', width=1)
+            img_draw.rectangle((xmin-2, zmin+2, xmax+2, zmax-2), fill=None, outline='#7D0552', width=1)
             # зелёный - ИСХОДНОЕ положение ГРУППЫ регионов до масштабирований и перемещений
             xmin: float = scale.render_center_width + (pdt.left_x - scale.universe_center_x) * scale.scale_x - render_settings.SOLAR_SYSTEM_FATNESS
             zmin: float = scale.render_half_height - (pdt.top_z - scale.universe_center_z) * scale.scale_z + render_settings.SOLAR_SYSTEM_FATNESS
             xmax: float = scale.render_center_width + (pdt.right_x - scale.universe_center_x) * scale.scale_x + render_settings.SOLAR_SYSTEM_FATNESS
             zmax: float = scale.render_half_height - (pdt.bottom_z - scale.universe_center_z) * scale.scale_z - render_settings.SOLAR_SYSTEM_FATNESS
-            # img_draw.rectangle((xmin-1, zmin+1, xmax+1, zmax-1), fill=None, outline='#66FF00' if not pdt.prolongated and not pdt.freezed else '#046307', width=1)
             img_draw.line((xmin-1, zmin+1, xmax+1, zmin+1), fill='#66FF00' if pdt.locked_minz <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
             img_draw.line((xmax+1, zmin+1, xmax+1, zmax-1), fill='#66FF00' if pdt.locked_maxx <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
             img_draw.line((xmax+1, zmax-1, xmin-1, zmax-1), fill='#66FF00' if pdt.locked_maxz <= render_settings.MOVEMENT_FREEZE_DURATION else '#046307', width=1)
@@ -939,11 +925,6 @@ class RenderRegionsActivity:
             curr_region[1]['max']['z'], 1)
         self.rough_positions.append(prev_movement)
         # сохраняем позиции регионов с тем чтобы была возможность вернуться к ним
-        """
-        deferred_positions = []
-        for i in range(render_settings.MOVEMENT_FREEZE_DURATION):
-            deferred_positions.append(curr_region[1])
-        """
         # в начало списка копируем регион с которого magnifier-список не начинался
         if start_date < curr_date:
             self.rough_positions.insert(0, prev_movement.prolongate(start_date))
@@ -953,11 +934,6 @@ class RenderRegionsActivity:
         freeze_index: int = render_settings.MOVEMENT_FREEZE_DURATION
         while curr_date <= till_date:
             curr_date += datetime.timedelta(days=1)
-            """
-            "# список задержанных позиций периодически чистим от устаревшей инфы
-            if deferred_positions:
-                del deferred_positions[0]
-            """
             # 1. проверям что magnifier-список не кончился
             # 2. если magnifier-список уже кончился, то план перемещений больше не плодим (freeze встаёт)
             if curr_index != till_index:
@@ -965,10 +941,6 @@ class RenderRegionsActivity:
                 curr_region = self.magnifier[curr_index]
                 if curr_date == curr_region[0]:
                     if not prev_movement:
-                        """
-                        for i in range(render_settings.MOVEMENT_FREEZE_DURATION):
-                            deferred_positions.append(curr_region[1])
-                        """
                         prev_movement = PlannedMapMovement(
                             curr_date,
                             curr_region[1]['min']['x'], 1,
@@ -978,36 +950,18 @@ class RenderRegionsActivity:
                     else:
                         ltx, ltz, rbx, rbz = (prev_movement.left_x, prev_movement.top_z, prev_movement.right_x, prev_movement.bottom_z)
                         lltx, lltz, lrbx, lrbz = (prev_movement.locked_minx + 1, prev_movement.locked_minz + 1, prev_movement.locked_maxx + 1, prev_movement.locked_maxz + 1)
-                        if curr_region[1]['min']['x'] < ltx:
+                        if (curr_region[1]['min']['x'] - ltx) < 0.01:  # проверка с учётом, что изменений не было
                             ltx = curr_region[1]['min']['x']
                             lltx = 1
-                        if curr_region[1]['min']['z'] < ltz:
+                        if (curr_region[1]['min']['z'] - ltz) < 0.01:  # проверка с учётом, что изменений не было
                             ltz = curr_region[1]['min']['z']
                             lltz = 1
-                        if curr_region[1]['max']['x'] > rbx:
+                        if (curr_region[1]['max']['x'] - rbx) > -0.01:  # проверка с учётом, что изменений не было
                             rbx = curr_region[1]['max']['x']
                             lrbx = 1
-                        if curr_region[1]['max']['z'] > rbz:
+                        if (curr_region[1]['max']['z'] - rbz) > -0.01:  # проверка с учётом, что изменений не было
                             rbz = curr_region[1]['max']['z']
                             lrbz = 1
-                        """
-                        ltx, ltz, rbx, rbz = (curr_region[1]['min']['x'], curr_region[1]['min']['z'], curr_region[1]['max']['x'], curr_region[1]['max']['z'])
-                        lltx, lltz, lrbx, lrbz = (prev_movement.locked_minx + 1, prev_movement.locked_minz + 1, prev_movement.locked_maxx + 1, prev_movement.locked_maxz + 1)
-                        deferred_positions.append(curr_region[1])
-                        for d in deferred_positions:
-                            if ltx < d['min']['x']:
-                                ltx = d['min']['x']
-                                lltx = 1
-                            if ltz < d['min']['z']:
-                                ltz = d['min']['z']
-                                lltz = 1
-                            if rbx > d['max']['x']:
-                                rbx = d['max']['x']
-                                lrbx = 1
-                            if rbz > d['max']['z']:
-                                rbz = d['max']['z']
-                                lrbz = 1
-                        """
                         prev_movement = PlannedMapMovement(curr_date, ltx, lltx, ltz, lltz, rbx, lrbx, rbz, lrbz)
                     self.rough_positions.append(prev_movement)
                     curr_index += 1
@@ -1015,16 +969,10 @@ class RenderRegionsActivity:
                 # если дата не наступила, то удержимаем план перемещений в freezing-режиме
                 elif curr_date < curr_region[0]:
                     if freeze_index != 1:
-                        """
-                        deferred_positions.append(deferred_positions[-1])
-                        """
                         prev_movement = prev_movement.prolongate(curr_date)
                         self.rough_positions.append(prev_movement)
                         freeze_index -= 1
                     else:
-                        """
-                        deferred_positions.clear()
-                        """
                         prev_movement = None
                 # то чего не может быть - даты в magnifier-списке должны быть отсортированы
                 else:
@@ -1062,51 +1010,118 @@ class RenderRegionsActivity:
             # определяем кол-во дней за которое необходимо увеличить соответствующую границу?
             grow_need_minx, grow_need_minz, grow_need_maxx, grow_need_maxz = (0, 0, 0, 0)
             shrink_need_minx, shrink_need_minz, shrink_need_maxx, shrink_need_maxz = (0, 0, 0, 0)
+            # определяем заблокированные для уменьшения стороны региона
+            shrink_possible_minx, shrink_possible_minz, shrink_possible_maxx, shrink_possible_maxz = (
+                curr_p.locked_minx > render_settings.MOVEMENT_FREEZE_DURATION,
+                curr_p.locked_minz > render_settings.MOVEMENT_FREEZE_DURATION,
+                curr_p.locked_maxx > render_settings.MOVEMENT_FREEZE_DURATION,
+                curr_p.locked_maxz > render_settings.MOVEMENT_FREEZE_DURATION)
             for next_index in range(curr_index + 1, curr_index + 10):
                 if next_index >= last_index:
                     break
                 next_p: PlannedMapMovement = self.rough_positions[next_index]
                 need_step: int = next_index - curr_index
+                inner_p = next((m[1] for m in self.magnifier if m[0] == next_p.date), None)
                 # ---
-                if (grow_need_minx == 0) and (next_p.left_x < grow_minx):
-                    grow_minx = next_p.left_x
-                    grow_need_minx = need_step
-                if shrink_need_minx == 0:
-                    if grows_minx[next_index] != next_index:
-                        shrink_minx = None
-                    elif shrink_minx and (next_p.left_x > shrink_minx):
-                        shrink_minx = next_p.left_x
-                        shrink_need_minx = need_step
+                if grow_need_minx == 0:
+                    # пока увеличение (любое) не найдено, проверяем что граница не расширилась
+                    if (next_p.left_x - grow_minx) < -0.01:
+                        grow_minx = next_p.left_x
+                        grow_need_minx = need_step
+                    # пока уменьшение (любое) не найдено, проверяем что расширение не выполнялось (если да, отключаем
+                    # поиск; если нет, проверяем чтто граница не сжалась)
+                    elif shrink_possible_minx and shrink_minx:
+                        if grows_minx[next_index] != next_index:
+                            shrink_minx = None
+                        # поскольку уменьшение региона возможно, то смотрим на координаты внутреннего региона, если
+                        # внутренних регионов окажется найдено несколько, то выбираем самый "поздний" (до которого
+                        # сжатие границы будет вестись дольше всего) и при этом самый ближний
+                        elif inner_p:
+                            distance: float = inner_p['min']['x'] - curr_p.moved_minx
+                            if shrink_need_minx == 0:
+                                if distance > 0.01:
+                                    shrink_minx = inner_p['min']['x']
+                                    shrink_need_minx = need_step
+                            else:
+                                found: float = shrink_minx - curr_p.moved_minx
+                                if (distance - found) < 0.01:
+                                    shrink_minx = inner_p['min']['x']
+                                    shrink_need_minx = need_step
                 # ---
-                if (grow_need_minz == 0) and (next_p.top_z < grow_minz):
-                    grow_minz = next_p.top_z
-                    grow_need_minz = need_step
-                if shrink_need_minz == 0:
-                    if grows_minz[next_index] != next_index:
-                        shrink_minz = None
-                    elif shrink_minz and (next_p.top_z > shrink_minz):
-                        shrink_minz = next_p.top_z
-                        shrink_need_minz = need_step
+                if grow_need_minz == 0:
+                    # пока увеличение (любое) не найдено, проверяем что граница не расширилась
+                    if (next_p.top_z - grow_minz) < -0.01:
+                        grow_minz = next_p.top_z
+                        grow_need_minz = need_step
+                    # пока уменьшение (любое) не найдено, проверяем что расширение не выполнялось (если да, отключаем
+                    # поиск; если нет, проверяем чтто граница не сжалась)
+                    elif shrink_possible_minz and shrink_minz:
+                        if grows_minz[next_index] != next_index:
+                            shrink_minz = None
+                        # поскольку уменьшение региона возможно, то смотрим на координаты внутреннего региона, если
+                        # внутренних регионов окажется найдено несколько, то выбираем самый "поздний" (до которого
+                        # сжатие границы будет вестись дольше всего) и при этом самый ближний
+                        elif inner_p:
+                            distance: float = inner_p['min']['z'] - curr_p.moved_minz
+                            if shrink_need_minz == 0:
+                                if distance > 0.01:
+                                    shrink_minz = inner_p['min']['z']
+                                    shrink_need_minz = need_step
+                            else:
+                                found: float = shrink_minz - curr_p.moved_minz
+                                if (distance - found) < 0.01:
+                                    shrink_minz = inner_p['min']['z']
+                                    shrink_need_minz = need_step
                 # ---
-                if (grow_need_maxx == 0) and (next_p.right_x > grow_maxx):
-                    grow_maxx = next_p.right_x
-                    grow_need_maxx = need_step
-                if shrink_need_maxx == 0:
-                    if grows_maxx[next_index] != next_index:
-                        shrink_maxx = None
-                    elif shrink_maxx and (next_p.right_x < shrink_maxx):
-                        shrink_maxx = next_p.right_x
-                        shrink_need_maxx = need_step
+                if grow_need_maxx == 0:
+                    # пока увеличение (любое) не найдено, проверяем что граница не расширилась
+                    if (next_p.right_x - grow_maxx) > 0.01:
+                        grow_maxx = next_p.right_x
+                        grow_need_maxx = need_step
+                    # пока уменьшение (любое) не найдено, проверяем что расширение не выполнялось (если да, отключаем
+                    # поиск; если нет, проверяем чтто граница не сжалась)
+                    elif shrink_possible_maxx and shrink_maxx:
+                        if grows_maxx[next_index] != next_index:
+                            shrink_maxx = None
+                        # поскольку уменьшение региона возможно, то смотрим на координаты внутреннего региона, если
+                        # внутренних регионов окажется найдено несколько, то выбираем самый "поздний" (до которого
+                        # сжатие границы будет вестись дольше всего) и при этом самый ближний
+                        elif inner_p:
+                            distance: float = inner_p['max']['x'] - curr_p.moved_maxx
+                            if shrink_need_maxx == 0:
+                                if distance > 0.01:
+                                    shrink_maxx = inner_p['max']['x']
+                                    shrink_need_maxx = need_step
+                            else:
+                                found: float = shrink_maxx - curr_p.moved_maxx
+                                if (distance - found) < 0.01:
+                                    shrink_maxx = inner_p['max']['x']
+                                    shrink_need_maxx = need_step
                 # ---
-                if (grow_need_maxz == 0) and (next_p.bottom_z > grow_maxz):
-                    grow_maxz = next_p.bottom_z
-                    grow_need_maxz = need_step
-                if shrink_need_maxz == 0:
-                    if grows_maxz[next_index] != next_index:
-                        shrink_maxz = None
-                    elif shrink_maxz and (next_p.bottom_z < shrink_maxz):
-                        shrink_maxz = next_p.bottom_z
-                        shrink_need_maxz = need_step
+                if grow_need_maxz == 0:
+                    # пока увеличение (любое) не найдено, проверяем что граница не расширилась
+                    if (next_p.bottom_z - grow_maxz) > 0.01:
+                        grow_maxz = next_p.bottom_z
+                        grow_need_maxz = need_step
+                    # пока уменьшение (любое) не найдено, проверяем что расширение не выполнялось (если да, отключаем
+                    # поиск; если нет, проверяем чтто граница не сжалась)
+                    elif shrink_possible_maxz and shrink_maxz:
+                        if grows_maxz[next_index] != next_index:
+                            shrink_maxz = None
+                        # поскольку уменьшение региона возможно, то смотрим на координаты внутреннего региона, если
+                        # внутренних регионов окажется найдено несколько, то выбираем самый "поздний" (до которого
+                        # сжатие границы будет вестись дольше всего) и при этом самый ближний
+                        elif inner_p:
+                            distance: float = inner_p['max']['z'] - curr_p.moved_maxz
+                            if shrink_need_maxz == 0:
+                                if distance > 0.01:
+                                    shrink_maxz = inner_p['max']['z']
+                                    shrink_need_maxz = need_step
+                            else:
+                                found: float = shrink_maxz - curr_p.moved_maxz
+                                if (distance - found) < 0.01:
+                                    shrink_maxz = inner_p['max']['z']
+                                    shrink_need_maxz = need_step
             # определяем направление движения рамок групп регионов (интерпретируется как "граница двигается в сторону")
             grow_move_minx, grow_move_minz, grow_move_maxx, grow_move_maxz = (
                 grow_minx - curr_p.moved_minx,
