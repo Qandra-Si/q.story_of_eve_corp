@@ -130,3 +130,22 @@ from seat.qview_employment_interval
 order by 1, 2;
 -- 93362315	91996495	Burenka Ololoev	Lord Brother Captain	2018-03-24	
 -- 93362315	92932199	Burenka Ololoev	miztrezz	2018-12-18	
+
+
+-- bounty_prizes-utf8.txt
+select
+ w.dt,
+ w.system_id,
+ w.sum_prizes * 10 -- 10% bounty
+from (
+ select
+  date(w.date) dt,
+  w.context_id as system_id,
+  ceil(sum(w.amount)) sum_prizes
+ from seat.corporation_wallet_journals w
+ where corporation_id in (98677876,98615601,98650099,98553333) and w.ref_type='bounty_prizes'
+ group by 1, 2
+) w
+order by 1;
+-- 2019-11-08	30004313	24890.0
+-- 2019-11-08	30004391	8550100.0

@@ -366,6 +366,53 @@ class RenderFadeInMarket:
         return render_settings.MARKET_MIN_FATNESS + market_radius
 
 
+class RenderFadeInBounty:
+    def __init__(
+            self,
+            isk: float,
+            x: typing.Optional[float],
+            z: typing.Optional[float]):
+        self.isk: int = int(isk)
+        self.x: typing.Optional[float] = x
+        self.z: typing.Optional[float] = z
+        self.frame_num: int = 1
+        self.transparency_frame: float = 2.0 / render_settings.DURATION_DATE  # удвоенная мера прозрачности, добавляемая каждый фрейм
+        self.opacity: float = 0.0
+
+    def pass_frame(self):
+        self.frame_num += 1
+        if self.frame_num < (render_settings.DURATION_DATE + 1) / 2:
+            self.opacity += self.transparency_frame
+            if self.opacity > 1.0:
+                self.opacity = 1.0
+        else:
+            self.opacity -= self.transparency_frame
+            if self.opacity < 0.0:
+                self.opacity = 0.0
+
+    @property
+    def disappeared(self) -> bool:
+        return self.frame_num > render_settings.DURATION_DATE
+
+    @property
+    def map_color(self) -> (int, int, int):
+        return render_settings.BOUNTY_SETUP
+
+    @property
+    def map_alpha(self) -> int:
+        return int(render_settings.BOUNTY_MAP_MIN_ALPHA + (1.0-self.opacity) * (render_settings.BOUNTY_MAP_MAX_ALPHA - render_settings.BOUNTY_MAP_MIN_ALPHA))
+
+    @property
+    def map_radius(self) -> float:
+        bounty_radius: float = 6 * self.isk / 1000000000  # 2020-09-26 : 1'391'764'970 isk
+        half_date_frames: int = int((render_settings.DURATION_DATE + 1) / 2)
+        if self.frame_num < half_date_frames:
+            bounty_radius *= self.frame_num / half_date_frames
+        else:
+            bounty_radius *= (render_settings.DURATION_DATE - self.frame_num) / half_date_frames
+        return render_settings.BOUNTY_MIN_FATNESS + bounty_radius
+
+
 class RenderFadeInRegion:
     def __init__(self, region_id: int, color: (int, int, int) = None):
         self.region_id: int = region_id
@@ -396,6 +443,7 @@ class RenderFadeInRepository:
         self.__killmails: typing.List[RenderFadeInKillmail] = []
         self.industry: typing.List[RenderFadeInIndustry] = []
         self.market: typing.List[RenderFadeInMarket] = []
+        self.bounty: typing.List[RenderFadeInBounty] = []
         self.regions: typing.List[RenderFadeInRegion] = []
 
     def add_event(self, item: RenderFadeInEvent):
@@ -414,6 +462,9 @@ class RenderFadeInRepository:
 
     def add_region(self, item: RenderFadeInRegion):
         self.regions.append(item)
+
+    def add_bounty(self, item: RenderFadeInBounty):
+        self.bounty.append(item)
 
     @property
     def killmails_in_list(self):
@@ -448,7 +499,7 @@ class RenderFadeInRepository:
                 list_of_disappeared_industry.insert(0, idx)
         for idx in list_of_disappeared_industry:
             del self.industry[idx]
-        # уменьшаем яркость industry-надписей и удаляем ставшие практически прозрачными
+        # уменьшаем яркость market-надписей и удаляем ставшие практически прозрачными
         list_of_disappeared_market: typing.List[int] = []
         for (idx, m) in enumerate(self.market):
             m.pass_frame()
@@ -456,6 +507,14 @@ class RenderFadeInRepository:
                 list_of_disappeared_market.insert(0, idx)
         for idx in list_of_disappeared_market:
             del self.market[idx]
+        # уменьшаем яркость bounty-надписей и удаляем ставшие практически прозрачными
+        list_of_disappeared_bounty: typing.List[int] = []
+        for (idx, b) in enumerate(self.bounty):
+            b.pass_frame()
+            if b.disappeared:
+                list_of_disappeared_bounty.insert(0, idx)
+        for idx in list_of_disappeared_bounty:
+            del self.bounty[idx]
         # уменьшаем яркость region-надписей и удаляем ставшие практически прозрачными
         list_of_disappeared_regions: typing.List[int] = []
         for (idx, r) in enumerate(self.regions):
@@ -615,6 +674,11 @@ class RenderUniverse:
         for m in market:
             if m.x is not None:
                 self.highlight_solar_system(m.x, m.z, m.map_color, m.map_radius, m.map_alpha)
+
+    def draw_bounty_map(self, bounty: typing.List[RenderFadeInBounty]):
+        for b in bounty:
+            if b.x is not None:
+                self.highlight_solar_system(b.x, b.z, b.map_color, b.map_radius, b.map_alpha)
 
     def draw_date_caption(self, date: str):
         left: int = self.scale.right_bound_of_date - self.date_font.getsize(date)[0]
@@ -963,7 +1027,8 @@ class RenderRegionsActivity:
             sde_pochven, pochven_date: datetime.datetime,
             killmails_with_dates: typing.List[typing.Any],
             industry_with_dates: typing.List[typing.Any],
-            market_with_dates: typing.List[typing.Any]):
+            market_with_dates: typing.List[typing.Any],
+            bounty_with_dates: typing.List[typing.Any]):
         # временные переменные
         last_date = None
         last_solar_system_id = None
@@ -972,7 +1037,7 @@ class RenderRegionsActivity:
         # строим список дат с которыми будут связаны min/max координаты видимых областей
         self.magnifier.clear()
         # перебираем загруженные наборы данных
-        for items in (killmails_with_dates, industry_with_dates, market_with_dates):
+        for items in (killmails_with_dates, industry_with_dates, market_with_dates, bounty_with_dates):
             # пользуемся тем, что в разных сипсках содержатся объекты с одинаковыми атрибутами date и system
             for item in items:
                 # стараемся не повторять одни и те же действия, если не поменялись индексы для поиска
@@ -1162,7 +1227,7 @@ class MapDynamicMovements:
         self.render_activity: RenderRegionsActivity = render_activity
         self.curr_index: int = 0
         self.curr_frame: int = 0
-        self.last_index: int = len(render_activity.rough_positions) if render_activity.rough_positions else 0
+        self.last_index: int = len(render_activity.rough_positions)-1 if render_activity.rough_positions else 0
         self.render_rescale: typing.Optional[RenderRescale] = None
 
     def calc(self):
@@ -1319,6 +1384,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
         start_date, stop_date,
         render_settings.FILE_EMPLOYMENT_COLS,
         preload_early_dates=True)
+    bounty_with_dates = read_csv_file(
+        '{}/{}'.format(input_dir, render_settings.FILE_BOUNTY_NAME), render_settings.FILE_MARKET_COL_DATE,
+        start_date, stop_date,
+        render_settings.FILE_BOUNTY_COLS)
 
     # определяем начало диапазона, который будет участвовать в создании кадров
     if start_date:
@@ -1333,6 +1402,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             dts.append(industry_with_dates[0].date)
         if market_with_dates:
             dts.append(market_with_dates[0].date)
+        if bounty_with_dates:
+            dts.append(bounty_with_dates[0].date)
         render_date = None
         for dt in dts:
             if render_date is None or render_date > dt:
@@ -1348,17 +1419,20 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             dtf.append(industry_with_dates[-1].date)
         if market_with_dates:
             dtf.append(market_with_dates[-1].date)
+        if bounty_with_dates:
+            dtf.append(bounty_with_dates[-1].date)
         stop_date = None
         for dt in dtf:
             if stop_date is None or stop_date < dt:
                 stop_date = dt
     # вывод отладочной информации, если требуется
     if verbose:
-        print('Loaded {} events, {} killmails, {} jobs, {} markets'.format(
+        print('Loaded {} events, {} killmails, {} jobs, {} markets, {} bounty'.format(
             len(events_with_dates),
             len(killmails_with_dates),
             len(industry_with_dates),
-            len(market_with_dates)
+            len(market_with_dates),
+            len(bounty_with_dates)
         ))
         print('Date from {} and date to {} choosen'.format(render_date, stop_date))
 
@@ -1371,7 +1445,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             sde_pochven, pochven_date,
             killmails_with_dates,
             industry_with_dates,
-            market_with_dates)
+            market_with_dates,
+            bounty_with_dates)
         regions_activity.plan_rough_positioning(render_date)
         regions_activity.plan_precise_positioning(render_scale)
         # если начало работы программы задано после появления Pochven в игре, то тихо корректируем регионы без
@@ -1505,10 +1580,10 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                     if new_region_id is not None:
                         render_fade_in.add_region(RenderFadeInRegion(new_region_id))
                     p = sde_positions.get(str(solar_system_id))
-                k: RenderFadeInMarket = RenderFadeInMarket(
+                m: RenderFadeInMarket = RenderFadeInMarket(
                     market_with_dates[0].isk,
                     p[0] if p is not None else None, p[2] if p is not None else None)
-                render_fade_in.add_market(k)
+                render_fade_in.add_market(m)
                 sum_isk_per_day += int(market_with_dates[0].isk)
                 del market_with_dates[0]
                 if not market_with_dates:
@@ -1520,6 +1595,27 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
                 e: RenderFadeInEvent = RenderFadeInEvent('Market achievement, {:,d} ISK'.format(maximum_isk_per_day), 4)
                 render_fade_in.add_event(e)
                 num_new_events += 1
+        # добавляем статистику крабства "сегодняшнего для" в список отрисовки, готовим маркеры для карты
+        if bounty_with_dates:
+            sum_isk_per_day: int = 0
+            while render_date == bounty_with_dates[0].date:
+                solar_system_id: typing.Optional[int] = bounty_with_dates[0].system
+                p = None
+                if solar_system_id is not None:
+                    new_region_id = regions_activity.mark_last_time_usage(solar_system_id, render_date)
+                    if new_region_id is not None:
+                        render_fade_in.add_region(RenderFadeInRegion(new_region_id))
+                    p = sde_positions.get(str(solar_system_id))
+                b: RenderFadeInBounty = RenderFadeInBounty(
+                    bounty_with_dates[0].isk,
+                    p[0] if p is not None else None, p[2] if p is not None else None)
+                render_fade_in.add_bounty(b)
+                sum_isk_per_day += int(bounty_with_dates[0].isk)
+                del bounty_with_dates[0]
+                if not bounty_with_dates:
+                    break
+            if verbose and sum_isk_per_day:
+                print(' {} ISK in bounty operations'.format(sum_isk_per_day))
         # выводим отладку на экран, если включена
         if verbose and num_new_events:
             print(' {} new events'.format(num_new_events))
@@ -1556,6 +1652,8 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             renderer.draw_industry_map(render_fade_in.industry)
             # наносим на изображение рыночные сделки
             renderer.draw_market_map(render_fade_in.market)
+            # наносим на изображение крабство в регионах
+            renderer.draw_bounty_map(render_fade_in.bounty)
             # событиям, находящимся в репозитории "затухания" повышается прозрачность
             render_fade_in.pass_frame()
 
