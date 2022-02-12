@@ -8,6 +8,17 @@ import eve_sde_tools
 import render_settings
 
 
+class RenderRescale:
+    def __init__(self):
+        # rescale подменяет центр вселенной и масштаб отрисовки объектов
+        # значения рассчитываются в результате множества преобразований и поиска событий, происходящих на карте
+        # (rescale возможен только при MOVEMENT_MAP_ENABLED = True)
+        self.universe_center_x: float = 0.0
+        self.universe_center_z: float = 0.0
+        self.rescale_x: float = 0.0
+        self.rescale_z: float = 0.0
+
+
 class RenderScale:
     def __init__(self):
         # данные, полученные из позиций солнечных систем
@@ -497,6 +508,7 @@ class RenderUniverse:
             canvas: Image,
             img_draw: ImageDraw,
             scale: RenderScale,
+            rescale: typing.Optional[RenderRescale],
             date_font: ImageFont,
             events_font: ImageFont,
             killmails_font: ImageFont,
@@ -504,6 +516,7 @@ class RenderUniverse:
         self.canvas: Image = canvas
         self.img_draw: ImageDraw = img_draw
         self.scale: RenderScale = scale
+        self.rescale: typing.Optional[RenderRescale] = rescale
         self.date_font: ImageFont = date_font
         self.events_font: ImageFont = events_font
         self.killmails_font: ImageFont = killmails_font
@@ -529,38 +542,56 @@ class RenderUniverse:
         del mask
         return transp_img
 
-    def draw_solar_system(self, x: float, z: float, luminosity: float):
-        __x: float = self.scale.render_center_width + (x - self.scale.universe_center_x) * self.scale.scale_x
-        __z: float = self.scale.render_half_height - (z - self.scale.universe_center_z) * self.scale.scale_z
-        __fatness: float = render_settings.SOLAR_SYSTEM_FATNESS
-        __luminosity: int = int(render_settings.LUMINOSITY_MIN_BOUND + (sqrt(luminosity) - self.scale.min_luminosity) * self.scale.scale_luminosity)
-        transp_img: Image = self.create_transparent_ellipse(__fatness, render_settings.SOLAR_SYSTEM_BLUR, 'white', __luminosity)
+    def draw_solar_system(self, x: float, z: float, __luminosity: float):
+        if render_settings.MOVEMENT_MAP_DEBUG or self.rescale is None:
+            fatness: float = render_settings.SOLAR_SYSTEM_FATNESS
+            x: float = self.scale.render_center_width + (x - self.scale.universe_center_x) * self.scale.scale_x
+            z: float = self.scale.render_half_height - (z - self.scale.universe_center_z) * self.scale.scale_z
+        else:
+            fatness: float = render_settings.SOLAR_SYSTEM_FATNESS * self.rescale.rescale_z
+            x: float = self.scale.render_center_width + (x - self.rescale.universe_center_x) * self.rescale.rescale_x * self.scale.scale_x
+            if x < -fatness or x > (render_settings.RENDER_WIDTH+fatness):
+                return
+            z: float = self.scale.render_half_height - (z - self.rescale.universe_center_z) * self.rescale.rescale_z * self.scale.scale_z
+            if z < -fatness or z > (render_settings.RENDER_HEIGHT+fatness):
+                return
+        luminosity: int = int(render_settings.LUMINOSITY_MIN_BOUND + (sqrt(__luminosity) - self.scale.min_luminosity) * self.scale.scale_luminosity)
+        transp_img: Image = self.create_transparent_ellipse(fatness, render_settings.SOLAR_SYSTEM_BLUR, 'white', luminosity)
         shift: (int, int) = transp_img.size
-        shift = (int(__x - shift[0] / 2), int(__z - shift[1] / 2))
+        shift = (int(x - shift[0] / 2), int(z - shift[1] / 2))
         self.canvas.paste(transp_img, shift, transp_img)
 
     def highlight_solar_system(self, x: float, z: float, color: (int, int, int), fatness: float, alpha: int):
-        __x: float = self.scale.render_center_width + (x - self.scale.universe_center_x) * self.scale.scale_x
-        __z: float = self.scale.render_half_height - (z - self.scale.universe_center_z) * self.scale.scale_z
-        # DEBUG: print("{}x{} {} {} {}".format(int(__x), int(__z), color, fatness, alpha))
+        if render_settings.MOVEMENT_MAP_DEBUG or self.rescale is None:
+            x: float = self.scale.render_center_width + (x - self.scale.universe_center_x) * self.scale.scale_x
+            z: float = self.scale.render_half_height - (z - self.scale.universe_center_z) * self.scale.scale_z
+        else:
+            fatness *= self.rescale.rescale_x
+            x: float = self.scale.render_center_width + (x - self.rescale.universe_center_x) * self.rescale.rescale_x * self.scale.scale_x
+            if x < -fatness or x > (render_settings.RENDER_WIDTH+fatness):
+                return
+            z: float = self.scale.render_half_height - (z - self.rescale.universe_center_z) * self.rescale.rescale_z * self.scale.scale_z
+            if z < -fatness or z > (render_settings.RENDER_HEIGHT + fatness):
+                return
+        # DEBUG: print("{}x{} {} {} {}".format(int(x), int(z), color, fatness, alpha))
         transp_img: Image = self.create_transparent_ellipse(fatness, 4, color, alpha)
         shift: (int, int) = transp_img.size
-        shift = (int(__x - shift[0]/2), int(__z - shift[1]/2))
+        shift = (int(x - shift[0]/2), int(z - shift[1]/2))
         self.canvas.paste(transp_img, shift, transp_img)
         del transp_img
 
     def draw_events_list(self, events: typing.List[RenderFadeInEvent]):
-        __x: int = self.scale.left_bound_of_events
+        x: int = self.scale.left_bound_of_events
         if render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_CENTER:
-            __y: float = self.scale.bottom_bound_of_events - self.scale.fontsize
+            y: float = self.scale.bottom_bound_of_events - self.scale.fontsize
             for e in events:
-                self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
-                __y -= self.scale.fontsize
+                self.img_draw.text((x, y), e.txt, fill=e.color, font=self.events_font)
+                y -= self.scale.fontsize
         elif render_settings.RENDER_LAYOUT == render_settings.RenderLayout.MAP_RIGHT:
-            __y: float = self.scale.top_bound_of_events
+            y: float = self.scale.top_bound_of_events
             for e in events:
-                self.img_draw.text((__x, __y), e.txt, fill=e.color, font=self.events_font)
-                __y += self.scale.fontsize
+                self.img_draw.text((x, y), e.txt, fill=e.color, font=self.events_font)
+                y += self.scale.fontsize
 
     def draw_killmails_list(self, killmails: typing.List[RenderFadeInKillmail]):
         __x: int = 0  # self.scale.left_bound_of_events
@@ -645,10 +676,16 @@ class RenderUniverse:
             if sr is None:
                 continue
             center: (float, float, float) = sr['center']
-            x: float = self.scale.render_center_width + (center['x'] - self.scale.universe_center_x) * self.scale.scale_x
-            y: float = self.scale.render_half_height - (center['z'] - self.scale.universe_center_z) * self.scale.scale_z
-            sz: (int, int) = self.region_font.getsize(sr['name'])
-            self.img_draw.text((x - sz[0]/2, y - sz[1]/2), sr['name'], fill=r.color, font=self.region_font)
+            if render_settings.MOVEMENT_MAP_DEBUG or self.rescale is None:
+                x: float = self.scale.render_center_width + (center['x'] - self.scale.universe_center_x) * self.scale.scale_x
+                y: float = self.scale.render_half_height - (center['z'] - self.scale.universe_center_z) * self.scale.scale_z
+                region_font = self.region_font
+            else:
+                x: float = self.scale.render_center_width + (center['x'] - self.rescale.universe_center_x) * self.rescale.rescale_x * self.scale.scale_x
+                y: float = self.scale.render_half_height - (center['z'] - self.rescale.universe_center_z) * self.rescale.rescale_z * self.scale.scale_z
+                region_font = ImageFont.truetype(font=self.region_font.path, size=int(self.region_font.size * self.rescale.rescale_z))
+            sz: (int, int) = region_font.getsize(sr['name'])
+            self.img_draw.text((x - sz[0]/2, y - sz[1]/2), sr['name'], fill=r.color, font=region_font)
 
 
 class PlannedMapMovement:
@@ -679,6 +716,8 @@ class PlannedMapMovement:
         self.moved_minz: typing.Optional[float] = None
         self.moved_maxx: typing.Optional[float] = None
         self.moved_maxz: typing.Optional[float] = None
+        # ---
+        # ОКОНЧАТЕЛЬНЫЕ РАСЧЁТЫ НА ТЕКУЩУЮ ДАТУ (с учётом перемасштабирования и перемещения)
         # расчёт перемещённых центров и рамок с сохранением пропорций видимой области будет завершён после коррекции
         # всех moved-полей
         self.width: typing.Optional[float] = None
@@ -803,6 +842,7 @@ class RenderRegionBound:
                     datetime.datetime.strftime(curr_date + datetime.timedelta(days=direction_steps), '%Y-%m-%d'))  # noqa """
             grow_move = grow_pos - self.pos
             delta: float = grow_move / direction_steps
+            # TODO: здесь можно ограничить максимальную скорость смещения
             self.pos += delta
         elif shrink_pos:
             """if self.name1 == 'max' and self.name2 == 'x':
@@ -812,6 +852,7 @@ class RenderRegionBound:
                     datetime.datetime.strftime(curr_date + datetime.timedelta(days=-direction_steps), '%Y-%m-%d'))  # noqa """
             shrink_move = shrink_pos - self.pos
             delta: float = shrink_move / -direction_steps
+            # TODO: здесь можно ограничить максимальную скорость смещения
             self.pos += delta
         return self.pos
 
@@ -1092,7 +1133,7 @@ class RenderRegionsActivity:
                 break
             curr_p: PlannedMapMovement = __curr_p
             next_p: PlannedMapMovement = self.rough_positions[curr_index + 1]
-            till_date: datetime.date = min(last_date, curr_p.date + datetime.timedelta(days=10))
+            till_date: datetime.date = min(last_date, curr_p.date + datetime.timedelta(days=render_settings.MOVEMENT_PREDICTION_DURATION))
             # определяем заблокированные для уменьшения стороны региона (признаки интерпретируются как "данные по
             # границе региона могут устареть")
             shrink_possible_minx, shrink_possible_minz, shrink_possible_maxx, shrink_possible_maxz = (
@@ -1110,6 +1151,49 @@ class RenderRegionsActivity:
         # ширине и по высоте, не допускаем их выход за пределы видимой области экрана при изменении пропорций)
         for p in self.rough_positions:
             p.do_precise_calculation(render_scale)
+
+
+class MapDynamicMovements:
+    def __init__(
+            self,
+            render_scale: RenderScale,
+            render_activity: RenderRegionsActivity):
+        self.render_scale: RenderScale = render_scale
+        self.render_activity: RenderRegionsActivity = render_activity
+        self.curr_index: int = 0
+        self.curr_frame: int = 0
+        self.last_index: int = len(render_activity.rough_positions) if render_activity.rough_positions else 0
+        self.render_rescale: typing.Optional[RenderRescale] = None
+
+    def calc(self):
+        curr_p: PlannedMapMovement = self.render_activity.rough_positions[self.curr_index]
+        next_p: PlannedMapMovement = self.render_activity.rough_positions[self.curr_index+1] if self.curr_index < self.last_index else self.render_activity.rough_positions[-1]
+        delta_x: float = (next_p.center_x - curr_p.center_x) / render_settings.DURATION_DATE * self.curr_frame
+        delta_y: float = (next_p.center_z - curr_p.center_z) / render_settings.DURATION_DATE * self.curr_frame
+        self.render_rescale.universe_center_x = curr_p.center_x + delta_x
+        self.render_rescale.universe_center_z = curr_p.center_z + delta_y
+        delta_width: float = (next_p.width - curr_p.width) / render_settings.DURATION_DATE * self.curr_frame
+        delta_height: float = (next_p.height - curr_p.height) / render_settings.DURATION_DATE * self.curr_frame
+        self.render_rescale.rescale_x = self.render_scale.universe_width / (curr_p.width + delta_width)
+        self.render_rescale.rescale_z = self.render_scale.universe_height / (curr_p.height + delta_height)
+        # DEBUG: print(self.curr_index, self.render_rescale.universe_center_x, self.render_rescale.universe_center_z)
+
+    def begin(self) -> typing.Optional[RenderRescale]:
+        if not render_settings.MOVEMENT_MAP_ENABLED:
+            return None
+        self.render_rescale = RenderRescale()
+        self.calc()
+        return self.render_rescale
+
+    def next(self) -> typing.Optional[RenderRescale]:
+        if self.render_rescale is None:
+            return None
+        self.curr_frame += 1
+        if self.curr_frame == render_settings.DURATION_DATE:
+            self.curr_frame = 0
+            self.curr_index += 1
+        self.calc()
+        return self.render_rescale
 
 
 class ImportedData:
@@ -1301,6 +1385,11 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
     # уничтожаем исходную информацию о регионах, пользоваться нельзя - она уже пропатчена (возможно?)
     del sde_regions
 
+    # в том случае, если включен режим динамического изменения карты - понадобится трекер пересчёта
+    # смещений и масштабирования (трекер будет выдавать новое центрирование и новый масштаб)
+    rescale_tracker: MapDynamicMovements = MapDynamicMovements(render_scale, regions_activity)
+    render_rescale: typing.Optional[RenderRescale] = None
+
     # набор данных, которые подвергаются мерцанию и переменные для статистики
     render_fade_in: RenderFadeInRepository = RenderFadeInRepository()
     maximum_num_of_industry_jobs = 0
@@ -1440,19 +1529,22 @@ def render_base_image(cwd: str, input_dir: str, out_dir: str, date_from: str, da
             # создаём канву на которой будем рисовать
             canvas = Image.new('RGB', (render_settings.RENDER_WIDTH, render_settings.RENDER_HEIGHT), 'black')
             img_draw = ImageDraw.Draw(canvas, 'RGB')
+            # меняем масштаб марты и смещаем её, если включён режим динамического формирования карты
+            if render_settings.MOVEMENT_MAP_ENABLED:
+                render_rescale = rescale_tracker.next() if render_rescale else rescale_tracker.begin()
             # наносим на изображение контуры регионов (отладочный режим, рамки регионов рисуются под картой)
             if render_settings.MOVEMENT_MAP_ENABLED and render_settings.MOVEMENT_MAP_DEBUG:
                 regions_activity.draw_contours_of_magnifier_debug_only(img_draw, render_scale, render_date)
                 regions_activity.draw_contours_of_regions_debug_only(img_draw, render_scale, region_font)
             # генерируем рисовалку вселенной и корпоративных событий
-            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, date_font, events_font, events_font, region_font)
-            # наносим на изображение список пилотов
-            renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
+            renderer: RenderUniverse = RenderUniverse(canvas, img_draw, render_scale, render_rescale, date_font, events_font, events_font, region_font)
             # рисуем названия регионов на карте
             renderer.draw_regions(regions_activity.regions, render_fade_in.regions)
             # генерируем базовый фон с нанесёнными на него звёздами Вселенной EVE
             for p in sorted_solar_systems:
                 renderer.draw_solar_system(p[0], p[2], p[3])
+            # наносим на изображение список пилотов (д.б. выполнено до вывода событий, для расчёта границ вывода)
+            renderer.draw_pilots(pilots, render_date, frame_idx / render_settings.DURATION_DATE)
             # наносим дату на изображение
             renderer.draw_date_caption(render_date_str)
             # наносим на изображение надписи и тушим на их на шаг прозрачности
