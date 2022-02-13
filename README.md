@@ -4,7 +4,7 @@
 
 *Результат работы генератора*
 
-[![R Initiative 4 eveonline](https://img.youtube.com/vi/jwvHbyBFk0A/0.jpg)](https://youtu.be/jwvHbyBFk0A "R Initiative 4 eveonline")
+[![R Initiative 4 eveonline](https://img.youtube.com/vi/sZXIL8c8KbY/0.jpg)](https://youtu.be/sZXIL8c8KbY "R Initiative 4 eveonline")
 
 Для изготовления мультфильма понадобится Python, [статический ESI](https://developers.eveonline.com/resource/resources), [генератор видео](https://www.ffmpeg.org/), подключение к Internet и терпение на несколько часов работы ЭВМ. Скорость работы программы зависит от настроек генерации видео, по умолчанию задана настройка Ultra HD 4K 3840×2160 с частотой 24 кадра в секунду.
 

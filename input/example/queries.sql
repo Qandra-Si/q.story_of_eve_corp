@@ -149,3 +149,25 @@ from (
 order by 1;
 -- 2019-11-08	30004313	24890.0
 -- 2019-11-08	30004391	8550100.0
+
+
+-- mining-utf8.txt
+select
+ -- e.*,
+ -- timestamp(m.date, m.time),
+ m.date,
+ m.solar_system_id,
+ sum(m.quantity)
+from
+ (select pilot_id, date(enter_time) et, date(gone_time) gt from seat.qview_employment_interval) e
+  inner join seat.character_minings m on (
+   m.character_id=e.pilot_id and
+   e.et<timestamp(m.date, m.time) and
+   (e.gt is null or timestamp(m.date, m.time)<e.gt)
+  )
+group by 1, 2
+order by 1;
+-- 2019-09-27	30000123	1371659
+-- 2019-09-28	30000123	283198
+-- 2019-09-29	30000123	132370
+-- 2019-10-01	30004383	38401
